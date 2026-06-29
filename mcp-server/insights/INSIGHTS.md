@@ -17,6 +17,8 @@ See also: `insights/gotchas.md` for known quirks at project start.
 
 ## Codebase Patterns
 
+2026-06-29 — Un-stubbing a tool follows the same DI shape as the real tools: add the endpoint method to `http/client.ts` (+ `DevDigestClient` type + `createClient()`), change the tool's signature to `register*(server, client, deps)`, resolve human inputs (repo + pr#) to a `pullId` via `core/resolve.resolvePullId`, then `client.<method>(pullId)`. The `get-blast-radius` tool now mirrors `get-findings` exactly. A tool registered as `register*(server)` with no client can only ever be a stub. ref: mcp-server/src/tools/get-blast-radius.ts:1
+
 2026-06-26 — The `@devdigest/shared` path alias points to `../server/src/vendor/shared/index.ts` (relative to mcp-server/). Works at both compile time (tsc paths) and runtime (tsx). ref: mcp-server/tsconfig.json:18
 
 2026-06-26 — DevDigest API endpoints return BARE shapes, not `{ data: ... }` envelopes. `GET /agents` returns `Agent[]` directly; `POST /pulls/:id/review` returns `{ pr_id, runs, reviews }`. ref: mcp-server/src/http/client.ts

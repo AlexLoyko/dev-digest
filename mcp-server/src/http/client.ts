@@ -16,6 +16,7 @@ import type {
   ReviewRecord,
   RunTrace,
   ConventionCandidate,
+  BlastRadiusResult,
 } from '@devdigest/shared';
 import { config } from '../config.js';
 
@@ -114,6 +115,11 @@ export async function listConventions(repoId: string): Promise<ConventionCandida
   );
 }
 
+/** GET /pulls/:pullId/blast → BlastRadiusResult */
+export async function getBlastRadius(pullId: string): Promise<BlastRadiusResult> {
+  return request<BlastRadiusResult>(`/pulls/${encodeURIComponent(pullId)}/blast`);
+}
+
 /** Bundled client object for dependency injection into tools and core modules. */
 export type DevDigestClient = {
   listAgents: typeof listAgents;
@@ -124,6 +130,7 @@ export type DevDigestClient = {
   listReviews: typeof listReviews;
   getTrace: typeof getTrace;
   listConventions: typeof listConventions;
+  getBlastRadius: typeof getBlastRadius;
 };
 
 export function createClient(): DevDigestClient {
@@ -136,5 +143,6 @@ export function createClient(): DevDigestClient {
     listReviews,
     getTrace,
     listConventions,
+    getBlastRadius,
   };
 }

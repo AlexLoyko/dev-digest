@@ -1,41 +1,59 @@
 /**
- * devdigest_get_blast_radius — STUB tool.
+ * devdigest_get_blast_radius — map which symbols a PR changes and who calls them.
  *
- * Accepted inputs are intentionally ignored. The handler never throws and
- * makes no HTTP calls. Returns a well-formed non-error result so the calling
- * agent treats the stub as a known limitation rather than a failure.
+ * Identify the PR via repo + pr (required). Resolves to the internal pullId,
+ * then calls GET /pulls/:id/blast. Returns the changed symbols, their callers,
+ * impacted HTTP endpoints, prior PRs touching the same files, and an optional
+ * one-line LLM summary.
+ *
+ * Layer: presentation/transport. Thin — Zod-validate → resolve → fetch →
+ * format. Resolution logic lives in core/resolve.
  */
 
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { toolOk } from '../format.js';
+import type { DevDigestClient } from '../http/client.js';
+import type { resolvePullId } from '../core/resolve.js';
+import { toolOk, toolError } from '../format.js';
 
 // ---------------------------------------------------------------------------
-// Input schema — fields are accepted but ignored (STUB)
+// Input schema — raw Zod shape (not z.object())
 // ---------------------------------------------------------------------------
 
 const inputSchema = {
   repo: z
     .string()
-    .optional()
-    .describe("(Accepted but ignored — stub.) Repository as 'owner/name'."),
+    .describe(
+      "Repository as 'owner/name' (e.g. 'octocat/hello'), or just the name if unambiguous.",
+    ),
   pr: z
     .number()
     .int()
-    .optional()
-    .describe('(Accepted but ignored — stub.) Pull request number.'),
+    .describe('Pull request number (e.g. 42).'),
+};
+
+// ---------------------------------------------------------------------------
+// Deps type — injected from index.ts (enables testing without HTTP)
+// ---------------------------------------------------------------------------
+
+export type GetBlastRadiusDeps = {
+  resolvePullId: typeof resolvePullId;
 };
 
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
 
-export function registerGetBlastRadius(server: McpServer): void {
+export function registerGetBlastRadius(
+  server: McpServer,
+  client: DevDigestClient,
+  deps: GetBlastRadiusDeps,
+): void {
   server.registerTool(
     'devdigest_get_blast_radius',
     {
       description:
-        "STUB — not yet implemented. Intended to map which files and symbols a PR's changes affect. Returns a placeholder, not real data. Do not rely on its output and do not block your report on it — note the limitation and continue.",
+        "Map a PR's blast radius: which symbols it changes, who calls them, which HTTP endpoints are impacted, and prior PRs touching the same files. Identify the PR with repo + pr. Returns degraded:true with a reason when the repo index is unavailable — treat that as a known limitation, not a failure.",
       inputSchema,
       annotations: {
         readOnlyHint: true,
@@ -44,13 +62,26 @@ export function registerGetBlastRadius(server: McpServer): void {
         openWorldHint: true,
       },
     },
-    // Handler: no I/O, never throws — returns a fixed non-error payload
-    (_args) => {
-      return toolOk({
-        status: 'not_implemented',
-        message:
-          'Blast radius not yet available — proceed without it, note the limitation.',
-      });
+    async (args) => {
+      const { repo, pr } = args;
+
+      try {
+        // Step 1: resolve (repo, pr#) → { pullId }
+        const resolved = await deps.resolvePullId(client, repo, pr);
+        if ('error' in resolved) {
+          return toolError(resolved.error);
+        }
+
+        // Step 2: fetch the blast radius for this pull
+        const result = await client.getBlastRadius(resolved.pullId);
+
+        return toolOk(result);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return toolError(
+          `DevDigest API error: ${message}. Ensure the API is running at http://localhost:3001 (run ./scripts/dev.sh).`,
+        );
+      }
     },
   );
 }

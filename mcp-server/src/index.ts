@@ -60,7 +60,7 @@ async function main(): Promise<void> {
     shapeFindings,
   });
 
-  registerGetBlastRadius(server);
+  registerGetBlastRadius(server, client, { resolvePullId });
 
   // Connect the stdio transport — exactly once
   const transport = new StdioServerTransport();
