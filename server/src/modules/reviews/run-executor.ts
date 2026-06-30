@@ -19,6 +19,8 @@ import { REVIEW_STRATEGY } from "./constants.js";
 import { taskLine } from "./helpers.js";
 import { loadDiff } from "./diff-loader.js";
 import { IntentService } from "../intent/service.js";
+import { resolveSpecPaths } from "../project-context/injection.js";
+import { readDocument } from "../project-context/documents.js";
 
 /** Thrown by a run when the user cancels it mid-flight (between map files). */
 export class RunCancelledError extends Error {
@@ -242,6 +244,12 @@ export class ReviewRunExecutor {
       `Starting review with agent "${agent.name}" (${agent.provider}/${agent.model})`,
     );
 
+    // T10 — spec injection bookkeeping. Declared before the try block so the
+    // failure/cancel catch can include them in the trace even when the error
+    // occurs before or during the spec-read phase.
+    let readPaths: string[] = [];
+    let missing: string[] = [];
+
     try {
       // Resolve the agent's LLM provider. (container.llm throws if the provider
       // key is missing — caught below and persisted as a failed run.)
@@ -303,6 +311,44 @@ export class ReviewRunExecutor {
         );
       }
 
+      // ---- T10 — Project-context spec injection --------------------------------
+      // Snapshot agent + enabled-skill attached paths ONCE at run start (AC-18).
+      // No new LLM/embedding/network call is made here (AC-24).
+      // reviewer-core wraps each spec with wrapUntrusted + INJECTION_GUARD —
+      // pass RAW texts; do NOT wrap here (AC-20/AC-29 already satisfied).
+      const loadedSkillsForSpec = linkedSkills
+        .filter((s) => s.skill.enabled)
+        .map((s) => ({ paths: s.skill.attachedDocPaths ?? [] }));
+      const specPaths = resolveSpecPaths({
+        agentPaths: agent.attachedDocPaths ?? [],
+        loadedSkills: loadedSkillsForSpec,
+      });
+
+      const specTexts: string[] = [];
+      // readPaths and missing are declared above the try block so the catch
+      // can include them in the failure trace.
+      const repoRef = { owner: repo.owner, name: repo.name };
+      for (const p of specPaths) {
+        try {
+          const text = await readDocument(this.container.git, repoRef, p);
+          specTexts.push(text);
+          readPaths.push(p);
+        } catch {
+          // Fail-soft (AC-22): stale/unreadable/guard-refused/clone-absent paths
+          // are recorded in missing and do NOT fail the run.
+          missing.push(p);
+        }
+      }
+      if (readPaths.length > 0) {
+        runLog.info(
+          `Project context: ${readPaths.length} spec(s) injected, ${missing.length} missing`,
+        );
+      } else if (missing.length > 0) {
+        runLog.info(
+          `Project context: 0 spec(s) injected, ${missing.length} missing (all paths unreadable)`,
+        );
+      }
+
       // ---- Engine: assemble → single-pass → grounding -----------------------
       // The pure review pipeline lives in @devdigest/reviewer-core (shared with
       // the CI runner). The service owns only I/O: repo-intel context resolution
@@ -330,6 +376,10 @@ export class ReviewRunExecutor {
         // reviewer-core's assemblePrompt wraps it via wrapUntrusted (T1).
         // Omitted when intent computation failed (best-effort).
         ...(intentBlock ? { intent: intentBlock } : {}),
+        // T10 — project-context specs. reviewer-core wraps each text with
+        // wrapUntrusted('spec-N') + INJECTION_GUARD; RAW texts passed here.
+        // Omitted when specPaths is empty or all reads failed (AC-23).
+        ...(specTexts.length > 0 ? { specs: specTexts } : {}),
         task,
         sessionId: `${repo.owner}/${repo.name}#${pull.number}:${agent.name}`,
         onEvent: (e) => runLog.event(e.kind, e.msg, e.data),
@@ -412,7 +462,9 @@ export class ReviewRunExecutor {
         })),
         raw_output: outcome.raw,
         memory_pulled: [],
-        specs_read: [],
+        // T10 — set actual read paths (AC-25/AC-26).
+        specs_read: readPaths,
+        ...(missing.length > 0 ? { specs_missing: missing } : {}),
         // Persisted log = the run's FULL event buffer (incl. shared pre-work:
         // diff load + intent), not just events recorded inside this method.
         log: runLog.logFor(runId),
@@ -442,16 +494,18 @@ export class ReviewRunExecutor {
         })
         .catch(() => undefined);
       await this.repo
-        .saveRunTrace(
-          runId,
-          this.traceFromBuffer(
+        .saveRunTrace(runId, {
+          ...this.traceFromBuffer(
             runId,
             pull,
             agent,
             "0/0 passed",
             Date.now() - start,
           ),
-        )
+          // T10 — include any paths read/missed before the failure (AC-26).
+          specs_read: readPaths,
+          ...(missing.length > 0 ? { specs_missing: missing } : {}),
+        })
         .catch(() => undefined);
       this.container.runBus.complete(runId);
       throw err;

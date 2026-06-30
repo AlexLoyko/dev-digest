@@ -104,6 +104,23 @@ export class AgentsService {
     return row ? toAgentDto(row) : undefined;
   }
 
+  /**
+   * Persist an ordered list of repo-relative markdown paths as the agent's
+   * attached context documents. Does NOT bump version (AC-14). Array order IS
+   * the attach order (AC-10). Returns the updated Agent DTO, or undefined if
+   * the agent is not found in the workspace.
+   */
+  async setAttachedDocs(
+    workspaceId: string,
+    id: string,
+    paths: string[],
+  ): Promise<Agent | undefined> {
+    const row = await this.repo.setAttachedDocs(workspaceId, id, paths);
+    if (!row) return undefined;
+    const skillCount = await this.repo.skillCount(id);
+    return { ...toAgentDto(row), skill_count: skillCount };
+  }
+
   /** Linked skills for an agent as AgentSkillLink[] (ordered). */
   async skillLinks(agentId: string): Promise<AgentSkillLink[]> {
     const links = await this.repo.linkedSkills(agentId);
