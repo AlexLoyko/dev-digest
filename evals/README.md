@@ -4,9 +4,13 @@ Evals for the DevDigest Claude Code harness — **skills** (`.claude/skills/*`),
 (`.claude/agents/*`), and **workflow-level** behavior (`CLAUDE.md` + on-disk config). Plain
 **vitest + the Claude Agent SDK**, in the same toolchain as the rest of the repo (`pnpm`).
 
-Runs on the Claude Code **subscription** — the API key is stripped from spawned processes, so
-calls use the login / credential helper, never per-token API billing. No external services,
-no third-party judge.
+Runs on the Claude Code **subscription** by default — the API key is stripped from spawned
+processes, so calls use the login / credential helper, never per-token API billing. No external
+services, no third-party judge.
+
+The **same tests** can also run on **OpenRouter** (DeepSeek and other cheap models) by setting
+`EVAL_BACKEND=openrouter` — no code changes, just env vars. See
+[Runners: Claude Code vs OpenRouter](#runners-claude-code-default-vs-openrouter) below.
 
 > Built to the *eval statistics upgrade* plan (`evals/docs/eval-stats-upgrade.md`): persisted
 > per-run records, per-practice statistics, and a with-vs-without-artifact benchmark, on top of
@@ -58,6 +62,186 @@ the artifact → measured lift). All three read the same persisted `results/reco
   to a **stronger family** (`EVAL_JUDGE_MODEL=claude-sonnet-5`) than the task (`claude-haiku-4-5`)
   to soften single-model self-preference. On a shared subscription families still overlap — the
   real mitigations are *blind + binary + verbatim evidence*.
+
+## Runners: Claude Code (default) vs OpenRouter
+
+The same eval tests run against two backends, chosen by `EVAL_BACKEND` — you never edit a test to
+switch. The model name is a **separate** knob (`EVAL_MODEL` / `EVAL_JUDGE_MODEL`), and its format
+differs per backend.
+
+| `EVAL_BACKEND` | Runtime | Auth | Model name format |
+|---|---|---|---|
+| `subscription` *(default)* | Claude Agent SDK on the Claude Code login | none (API key stripped) | Anthropic ID — `claude-haiku-4-5` |
+| `openrouter` | see split below | `OPENROUTER_API_KEY` | OpenRouter slug — `deepseek/deepseek-chat`, `anthropic/claude-haiku-4.5`, `google/gemini-...` |
+
+**Why the backend splits by tier.** OpenRouter's native "Anthropic Skin" only serves *Anthropic*
+models, and only the Claude Agent SDK produces the subagent/skill/file-read trace the workflow tier
+asserts on. So under `openrouter`:
+
+- **Content tier** (`skillTask` + the LLM judge) → a **direct** OpenAI-compatible call
+  (`src/runtime/run-openrouter.ts`, mirroring `reviewer-core/src/llm/openrouter.ts`). DeepSeek and
+  any non-Anthropic model work here **natively, no proxy**. Routed via `src/runtime/dispatch.ts`.
+- **Tool tiers** (`agentTask`, `workflowTask`) → stay on the Claude Agent SDK, pointed at
+  `ANTHROPIC_BASE_URL`. This works out-of-the-box only with `anthropic/*` slugs (the Skin). Cheap
+  **non-Anthropic** models here need a LiteLLM translating proxy — **now bundled** under
+  `evals/proxy/`. Start it (`pnpm proxy:up`) and point `OPENROUTER_BASE_URL` at it
+  (`http://localhost:4000`). See [Running tool tiers on cheap models](#running-tool-tiers-on-cheap-models-litellm-proxy).
+
+The default (`subscription`) path is untouched — the dispatcher only diverges when
+`EVAL_BACKEND=openrouter`.
+
+### Examples — the same `pnpm eval:skills`, three ways
+
+```bash
+# 1. Local, Anthropic (default — set nothing)
+pnpm eval:skills
+
+# 2. OpenRouter + DeepSeek (native, no proxy)
+EVAL_BACKEND=openrouter \
+EVAL_MODEL=deepseek/deepseek-chat \
+EVAL_JUDGE_MODEL=deepseek/deepseek-chat \
+OPENROUTER_API_KEY=sk-or-... \
+pnpm eval:skills
+
+# 3. OpenRouter, but an Anthropic model via the Skin
+EVAL_BACKEND=openrouter \
+EVAL_MODEL=anthropic/claude-haiku-4.5 \
+OPENROUTER_API_KEY=sk-or-... \
+pnpm eval:skills
+```
+
+> **Gotcha:** always set `EVAL_MODEL` together with `EVAL_BACKEND=openrouter` — the default
+> `claude-haiku-4-5` is an Anthropic ID and OpenRouter won't find it. Use an OpenRouter slug.
+
+### The OpenRouter engine — running EVERY tier (incl. tool tiers) on cheap models
+
+The content tier talks to OpenRouter natively, but the **tool tiers** (`agentTask`, `workflowTask`)
+run inside the Claude Agent SDK, which speaks the Anthropic wire protocol. OpenRouter's Anthropic
+Skin only serves that shape for `anthropic/*` slugs — so to back the tool tiers with a cheap
+non-Anthropic model (Gemini Flash, DeepSeek, …) the SDK is routed through the bundled **LiteLLM
+translating proxy**. This is the "engine" that makes cheap CI runs possible; it lives entirely
+inside `evals/` and needs no code changes to use.
+
+**Engine pieces** (all in `evals/`):
+
+| File | Role |
+|------|------|
+| `proxy/litellm.config.yaml` | LiteLLM config: a wildcard route forwarding any `EVAL_MODEL` slug to OpenRouter, in no-auth mode |
+| `proxy/docker-compose.yml` | Runs `ghcr.io/berriai/litellm` on `:4000`, both wire formats on one port |
+| `scripts/litellm-proxy.sh` | `up` / `down` / `wait` wrapper (reads `OPENROUTER_API_KEY` from env, else `~/.devdigest/secrets.json`) |
+| `src/runtime/env.ts` | Points the SDK's `ANTHROPIC_BASE_URL` at `OPENROUTER_BASE_URL` (the proxy) under `EVAL_BACKEND=openrouter` |
+| `src/runtime/run-openrouter.ts` | Content tier's direct OpenAI-format call — also honours `OPENROUTER_BASE_URL` |
+
+The proxy accepts **both** shapes on one port — `POST /v1/messages` (Anthropic, from the SDK) and
+`POST /chat/completions` (OpenAI, from the content tier) — and translates each to the target model
+on OpenRouter. Because `OPENROUTER_BASE_URL` overrides the base for **both** tiers, a single env var
+routes the whole suite through it. `pnpm proxy:*` are thin wrappers over the script.
+
+```bash
+# 1. Start the proxy (Docker). Reads OPENROUTER_API_KEY from env or ~/.devdigest/secrets.json.
+pnpm proxy:up                                  # → http://localhost:4000
+
+# 2. Point every tier at it and run the workflow tier on a cheap model
+EVAL_BACKEND=openrouter \
+OPENROUTER_BASE_URL=http://localhost:4000 \
+OPENROUTER_API_KEY=sk-or-... \
+EVAL_MODEL=google/gemini-2.5-flash \
+EVAL_JUDGE_MODEL=google/gemini-2.5-flash \
+pnpm eval:workflow
+
+# 3. Stop it when done
+pnpm proxy:down
+```
+
+`EVAL_MODEL` is forwarded verbatim to OpenRouter (the wildcard route in `proxy/litellm.config.yaml`),
+so you never edit config to try a new model. The proxy runs in **no-auth** mode — do not expose the
+port publicly.
+
+#### Which cheap model — verified
+
+The tool tiers assert on real tool use (subagent dispatch, doc reads, skill activation), so the
+model has to be capable enough to actually *do* it, not just be reachable. Measured on the bundled
+workflow cases:
+
+| Model | Content + routing/read traces | Subagent **dispatch** (`Agent`→ `architecture-reviewer`) |
+|-------|------------------------------|-----------------------------------------------------------|
+| `google/gemini-2.5-flash` | ✅ | ✅ **recommended** |
+| `deepseek/deepseek-chat` | ✅ | ❌ does the work inline instead of dispatching |
+| `openai/gpt-4.1-mini` | ✅ | ❌ |
+
+**Two caveats for the tool tiers on cheap models:**
+
+1. **Rate-limit flakiness under load.** Running the whole suite back-to-back can get throttled by
+   OpenRouter, degrading runs to a single turn (so a dispatch that passes in isolation may fail in a
+   full run). Run tool-tier cases **sequentially** and/or with retries; keep concurrency low in CI.
+2. **`activation` cases are behaviour-shaped.** They assert the model invokes the **Skill** tool.
+   A capable model may instead perform the underlying action directly (e.g. `Write` the insight
+   file), which the test counts as a miss even though it did the right thing. Treat `activation` as
+   **indicative, not blocking** when running on non-Anthropic models. (On the Anthropic path the
+   model invokes the Skill tool, so it passes.)
+
+> **Isolation note.** `workflowTask` runs with `settingSources:["project"]` + `bypassPermissions`
+> against the live repo. A model that decides to `Write` can touch real files (e.g. your local
+> memory dir) even though `WORKFLOW_ALLOWED_TOOLS` is a read-only list. In CI this is harmless (the
+> checkout is disposable); locally, prefer the Anthropic path or a throwaway clone for the workflow
+> tier.
+
+### Wiring it into GitHub Actions (per-PR)
+
+The engine is CI-ready: bring the proxy up as a step, wait for it, run the tier, tear it down. Put
+the OpenRouter key in the repo's **Actions secrets** as `OPENROUTER_API_KEY` (Settings → Secrets and
+variables → Actions). Create `.github/workflows/<name>.yml` in your repo:
+
+```yaml
+name: evals
+on:
+  pull_request:
+    paths: ['evals/**', '.claude/**', 'CLAUDE.md']   # only when the harness/artifacts change
+
+permissions:
+  contents: read
+
+jobs:
+  workflow-evals:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: evals
+    env:
+      EVAL_BACKEND: openrouter
+      OPENROUTER_BASE_URL: http://localhost:4000
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}   # repo Actions secret
+      EVAL_MODEL: google/gemini-2.5-flash
+      EVAL_JUDGE_MODEL: google/gemini-2.5-flash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: evals/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+
+      # --- the engine ---
+      - run: docker compose -f proxy/docker-compose.yml up -d   # OPENROUTER_API_KEY from job env
+      - run: pnpm proxy:wait                                     # block until the proxy answers
+      - run: pnpm eval:workflow                                  # or eval:agents / eval:skills / eval
+      - if: failure()
+        run: docker compose -f proxy/docker-compose.yml logs --tail 100
+      - if: always()
+        run: docker compose -f proxy/docker-compose.yml down
+```
+
+Notes:
+- ubuntu runners ship Docker + `docker compose`, so no extra setup is needed.
+- The proxy container reads `OPENROUTER_API_KEY` straight from the job `env` (which is fed by the
+  secret) — you don't pass it to `docker compose` explicitly.
+- Because tool tiers cost real tokens, gate on `paths:` (only when the harness/artifacts change) and
+  keep the case count small. For a stricter gate, split into a required `eval:agents`/`eval:skills`
+  job and a non-blocking `eval:workflow` job (activation flakiness, above).
 
 ## Module layout — `src/` (the engine)
 
@@ -330,8 +514,11 @@ Cheap and orthogonal; the `TrendReporter` keeps writing test-level outcome rows 
 
 | Env var | Default | Meaning |
 |---------|---------|---------|
-| `EVAL_MODEL` | `claude-haiku-4-5` | model under test (cheap by default; use `claude-sonnet-5` for fidelity) |
-| `EVAL_JUDGE_MODEL` | `claude-sonnet-5` | judge model (stronger family) |
+| `EVAL_BACKEND` | `subscription` | runner: `subscription` (Claude Code) or `openrouter` — see [Runners](#runners-claude-code-default-vs-openrouter) |
+| `EVAL_MODEL` | `claude-haiku-4-5` | model under test. Anthropic ID on `subscription`; OpenRouter slug on `openrouter` |
+| `EVAL_JUDGE_MODEL` | `claude-sonnet-5` | judge model (stronger family); same slug-format rule as `EVAL_MODEL` |
+| `OPENROUTER_API_KEY` | — | required when `EVAL_BACKEND=openrouter`; also in `~/.devdigest/secrets.json` |
+| `OPENROUTER_BASE_URL` | OpenRouter | override to point at a local LiteLLM proxy for non-Anthropic tool-tier models |
 | `EVAL_MAX_TURNS` | `8` | max agent turns per case |
 | `EVAL_CONFIG` | `candidate` | `benchmark` sets this to `baseline` to skip artifact injection |
 | `EVAL_QUIET` | unset | suppress per-run trace spam during multi-run aggregation |
