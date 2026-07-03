@@ -7,10 +7,12 @@
 #   • an engine change     → the workflow tier
 # A changed artifact with no written evals is reported as SKIP, not a failure.
 #
-# Models are a job-level knob (not surfaced in any UI). Skills run on a cheap content model;
-# the tool tiers (agents/workflow) run on Gemini Flash — the only verified model that reliably
-# does tool use + subagent dispatch (see evals/README.md "Which cheap model — verified").
-# Override per manual run via the workflow_dispatch inputs.
+# Models are a job-level knob (not surfaced in any UI). Skills (content tier) run on a cheap
+# non-Anthropic model (DeepSeek). The tool tiers (agents/workflow) run on Claude Haiku 4.5:
+# calibration showed the cheap OSS models are too noisy on borderline scoping cases, while Haiku
+# passes the suites 4/4 and — as an Anthropic slug via OpenRouter's skin — gives reliable subagent
+# dispatch, Skill activation, and valid judge JSON. Still cheap (~$1/full tool-tier run) and the
+# suites run only when artifacts change. Override per manual run via the workflow_dispatch inputs.
 
 name: evals
 
@@ -28,7 +30,7 @@ on:
         default: 'deepseek/deepseek-chat'
       tool_model:
         description: 'OpenRouter slug for the agents + workflow (tool) tiers'
-        default: 'google/gemini-2.5-flash'
+        default: 'anthropic/claude-haiku-4.5'
 
 permissions:
   contents: read
@@ -111,8 +113,8 @@ jobs:
       EVAL_BACKEND: openrouter
       OPENROUTER_BASE_URL: http://localhost:4000
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      EVAL_MODEL: ${{ inputs.tool_model || 'google/gemini-2.5-flash' }}
-      EVAL_JUDGE_MODEL: ${{ inputs.tool_model || 'google/gemini-2.5-flash' }}
+      EVAL_MODEL: ${{ inputs.tool_model || 'anthropic/claude-haiku-4.5' }}
+      EVAL_JUDGE_MODEL: ${{ inputs.tool_model || 'anthropic/claude-haiku-4.5' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -145,8 +147,8 @@ jobs:
       EVAL_BACKEND: openrouter
       OPENROUTER_BASE_URL: http://localhost:4000
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      EVAL_MODEL: ${{ inputs.tool_model || 'google/gemini-2.5-flash' }}
-      EVAL_JUDGE_MODEL: ${{ inputs.tool_model || 'google/gemini-2.5-flash' }}
+      EVAL_MODEL: ${{ inputs.tool_model || 'anthropic/claude-haiku-4.5' }}
+      EVAL_JUDGE_MODEL: ${{ inputs.tool_model || 'anthropic/claude-haiku-4.5' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
