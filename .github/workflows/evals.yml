@@ -92,7 +92,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: evals/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec vitest run "skills/${{ matrix.skill }}"
+      - run: pnpm exec vitest run "skills/${{ matrix.skill }}/"
 
   # ── 3. Agents — tool tier, needs the LiteLLM translating proxy ─────────────
   agents:
@@ -125,7 +125,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: docker compose -f proxy/docker-compose.yml up -d
       - run: pnpm proxy:wait
-      - run: pnpm exec vitest run "agents/${{ matrix.agent }}" --no-file-parallelism
+      - run: pnpm exec vitest run "agents/${{ matrix.agent }}/" --no-file-parallelism
       - if: failure()
         run: docker compose -f proxy/docker-compose.yml logs --tail 100
       - if: always()
