@@ -25,7 +25,9 @@ export const cases: WorkflowCase[] = [
       "architecture-reviewer, щоб він оцінив мій план на відповідність onion-шарам — не рецензуй сам.",
     expectFilesRead: ["server/docs/api-contracts.md"],
     expectSubagents: ["architecture-reviewer"],
-    maxTurns: 8,
+    // Read several "Read When" docs, form a plan, THEN dispatch the subagent — Haiku needs room to
+    // reach the dispatch step; at 8 turns it ran out mid-exploration and never delegated.
+    maxTurns: 25,
   },
 
   // --- trace (1 session): two "Read When" rows at once -----------------------------------------
@@ -66,7 +68,8 @@ export const cases: WorkflowCase[] = [
       "після зміни моделі ембедингів. Хочу це зафіксувати, щоб більше не наступати.",
     skill: "engineering-insights",
     shouldActivate: true,
-    maxTurns: 4,
+    // Room to explore the discovery and then invoke the Skill tool; 4 turns cut it off mid-work.
+    maxTurns: 15,
   },
   {
     kind: "activation",
@@ -75,6 +78,7 @@ export const cases: WorkflowCase[] = [
       "Поясни, як у pgvector працюють розмірності колонок і чому невідповідність повертає нуль рядків.",
     skill: "engineering-insights",
     shouldActivate: false,
-    maxTurns: 4,
+    // Symmetric budget with the positive case so the pair differs only by prompt, not turn count.
+    maxTurns: 15,
   },
 ];

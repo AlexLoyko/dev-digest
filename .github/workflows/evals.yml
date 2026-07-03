@@ -103,7 +103,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      max-parallel: 1   # tool tiers get rate-limited under load — run one at a time
+      # Each matrix entry is its own runner with its own proxy container, and Haiku via OpenRouter's
+      # Anthropic skin handles concurrency fine — so agents fan out in parallel, no serial wait.
       matrix:
         agent: ${{ fromJSON(needs.changes.outputs.agents) }}
     defaults:
