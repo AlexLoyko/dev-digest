@@ -70,6 +70,9 @@ export const cases: WorkflowCase[] = [
     shouldActivate: true,
     // Room to explore the discovery and then invoke the Skill tool; 4 turns cut it off mid-work.
     maxTurns: 15,
+    // Whether the model invokes the Skill tool vs. writing the insight directly is behaviour-shaped
+    // (README: "indicative, not blocking"). Record a miss as ⚠, don't fail the gate.
+    indicative: true,
   },
   {
     kind: "activation",
