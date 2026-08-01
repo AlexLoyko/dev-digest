@@ -273,8 +273,8 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
           score: 64,
           blockers: 0,
         },
-        // A failed run: no cost data at all. Proves "—" ≠ "$0.00" on every surface,
-        // and that the list column falls back to the newest *completed* run.
+        // A failed run: no cost data at all. Proves "—" ≠ "$0.00" on every
+        // surface, and that a null-cost run adds nothing to the PR total.
         {
           workspaceId,
           agentId: idOf('General Reviewer'),

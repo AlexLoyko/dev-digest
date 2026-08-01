@@ -245,9 +245,9 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     const trace = (await app.inject({ method: 'GET', url: `/runs/${runId}/trace` })).json();
     expect(trace.stats.cost_usd).toBeCloseTo(persisted, 10);
 
-    // (c) PR list — latest COMPLETED run's cost
+    // (c) PR list — the PR's total (one run here, so it equals that run)
     const pulls = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
-    expect(pulls.find((p: { id: string }) => p.id === pr.id).last_run_cost_usd).toBeCloseTo(persisted, 10);
+    expect(pulls.find((p: { id: string }) => p.id === pr.id).total_cost_usd).toBeCloseTo(persisted, 10);
 
     await app.close();
   });
@@ -272,7 +272,57 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     });
 
     const pulls = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
-    expect(pulls.find((p: { id: string }) => p.id === pr.id).last_run_cost_usd).toBeNull();
+    expect(pulls.find((p: { id: string }) => p.id === pr.id).total_cost_usd).toBeNull();
+
+    await app.close();
+  });
+
+  it('run cost: a PR reviewed by several agents reports their SUMMED cost', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+
+    // A fan-out: one "Run review" click → one agent_runs row per agent. Costs are
+    // deliberately distinct so a regression that reports a single run is caught
+    // whichever row it happens to pick.
+    const costs = [0.0031, 0.0033, 0.0242];
+    await pg.handle.db.insert(t.agentRuns).values([
+      ...costs.map((costUsd, i) => ({
+        workspaceId,
+        prId: pr.id,
+        ranAt: new Date(Date.now() + i), // ms apart, as separate INSERTs produce
+        provider: 'openai',
+        model: 'gpt-4.1',
+        durationMs: 1000,
+        tokensIn: 100,
+        tokensOut: 50,
+        costUsd,
+        status: 'done' as const,
+        findingsCount: 0,
+        grounding: '0/0 passed',
+      })),
+      // A failed run in the same batch contributes nothing (null, not zero).
+      {
+        workspaceId,
+        prId: pr.id,
+        ranAt: new Date(),
+        provider: 'openai',
+        model: 'gpt-4.1',
+        durationMs: 10,
+        tokensIn: 0,
+        tokensOut: 0,
+        costUsd: null,
+        status: 'failed' as const,
+        error: '429 quota exceeded',
+      },
+    ]);
+
+    const pulls = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    const total = pulls.find((p: { id: string }) => p.id === pr.id).total_cost_usd;
+
+    expect(total).toBeCloseTo(0.0306, 10);
+    // The bug this guards: the column used to report one run's cost. Assert the
+    // total is not equal to ANY single run — "a positive number" would have passed.
+    for (const c of costs) expect(total).not.toBeCloseTo(c, 10);
 
     await app.close();
   });

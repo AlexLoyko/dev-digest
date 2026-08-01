@@ -20,9 +20,14 @@ back.
 ## Behaviour
 
 **1 — PR list** (`/repos/[repoId]/pulls`). A **COST** column sits between STATUS and
-UPDATED, showing the cost of that PR's most recent completed run, e.g. `$0.014`. A PR
-that has never been reviewed, or whose runs all failed, shows `—`. Re-running a review
-replaces the number rather than accumulating it.
+UPDATED, showing the **total** spent on that PR across every run, e.g. `$0.031`. A review
+fans out across N agents, so showing any single run would report one agent's share as the
+PR's cost. A PR that has never been reviewed, or whose runs all failed, shows `—`.
+
+The total is cumulative over the PR's lifetime, not "the most recent review round" —
+isolating a round would need a batch identifier on the N runs of one invocation, and none
+exists (see `server/specs/0001-run-cost-badge.md`). Re-reviewing therefore increases the
+number.
 
 **2 — Agent runs timeline** (`/repos/[repoId]/pulls/[number]`, Agent runs tab). Each
 settled run row regains its usage line under the timestamp: `9,119 tok · $0.0013`. A run
@@ -50,8 +55,9 @@ a tenth of a cent or several dollars and a fixed 2-decimal format would render b
 - [ ] The PR list renders a COST header cell and one cost cell per row, positioned
       between STATUS and UPDATED, with the grid template widened to match so no column
       shifts.
-- [ ] A PR with `last_run_cost_usd: null` renders `—` in that cell, not a blank and not
+- [ ] A PR with `total_cost_usd: null` renders `—` in that cell, not a blank and not
       `$0.00`.
+- [ ] A PR with three completed runs renders their sum, not any one of them.
 - [ ] A settled timeline row with tokens renders `9,119 tok · $0.0013`, thousands
       separator included.
 - [ ] A timeline row with `tokens_in + tokens_out === 0` renders no usage line at all.
@@ -72,7 +78,7 @@ a tenth of a cent or several dollars and a fixed 2-decimal format would render b
 simply start being populated:
 
 - `src/lib/hooks/core.ts` → `GET /repos/:id/pulls` (`PrMeta[]`) — reads the new
-  `last_run_cost_usd`
+  `total_cost_usd`
 - `src/lib/hooks/reviews.ts` `usePrRuns` → `GET /pulls/:id/runs` (`RunSummary[]`) — reads
   the new `cost_usd`
 - `src/lib/hooks/trace.ts` `useRunTrace` → `GET /runs/:id/trace` (`RunTrace`) — reads the
@@ -81,8 +87,8 @@ simply start being populated:
 No `src/lib/api.ts` change; no `fetch` outside the hooks.
 
 **@devdigest/shared (`src/vendor/shared/`, this package's copy — mirror of the server's):**
-`RunStats.cost_usd`, `RunSummary.cost_usd`, `PrMeta.last_run_cost_usd`, all
-`z.number().nullable()`. This copy is known to lag the server's
+`RunStats.cost_usd` and `RunSummary.cost_usd` as `z.number().nullable()`, and
+`PrMeta.total_cost_usd` as `z.number().nullish()` (list-only). This copy is known to lag the server's
 ([`../INSIGHTS.md`](../INSIGHTS.md)) — apply the change to both.
 
 **New component** `src/components/run-cost-badge/` — the cross-route shared-component
@@ -111,8 +117,8 @@ trace drawer does **not** use the component — it feeds `formatCost` into the e
 
 ## Out of scope
 
-- A cumulative "total spend on this PR" figure — the column is the latest completed run
-  only.
+- Per-review-round cost ("what did the last review cost"), which needs a batch
+  identifier that does not exist in the schema.
 - Sorting or filtering the PR list by cost.
 - Cost anywhere else: the Files-changed tab, the compose-review flow, the agents screen,
   or the unbuilt `agentPerformance` aggregates.

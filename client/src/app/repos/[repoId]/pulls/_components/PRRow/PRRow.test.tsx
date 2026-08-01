@@ -29,7 +29,7 @@ function pr(o: Partial<PrMeta>): PrMeta {
     opened_at: "2026-06-11T18:44:34.000Z",
     updated_at: "2026-06-11T18:44:34.000Z",
     score: 61,
-    last_run_cost_usd: null,
+    total_cost_usd: null,
     ...o,
   };
 }
@@ -43,13 +43,13 @@ function renderRow(p: PrMeta) {
 }
 
 describe("PRRow — cost column", () => {
-  it("renders the latest run's cost", () => {
-    renderRow(pr({ last_run_cost_usd: 0.014 }));
+  it("renders the PR's total cost across all runs", () => {
+    renderRow(pr({ total_cost_usd: 0.014 }));
     expect(screen.getByText("$0.014")).toBeInTheDocument();
   });
 
   it("renders an em dash when the PR has no completed run", () => {
-    renderRow(pr({ last_run_cost_usd: null }));
+    renderRow(pr({ total_cost_usd: null }));
     expect(screen.getByText("—")).toBeInTheDocument();
     expect(screen.queryByText("$0.00")).not.toBeInTheDocument();
   });

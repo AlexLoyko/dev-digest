@@ -60,7 +60,7 @@ export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
         </Badge>
       </div>
       <div>
-        <RunCostBadge costUsd={pr.last_run_cost_usd} emptyTitle={t("list.noCost")} />
+        <RunCostBadge costUsd={pr.total_cost_usd} emptyTitle={t("list.noCost")} />
       </div>
       <div style={s.updatedCell}>{relativeTime(pr.updated_at)}</div>
     </div>
