@@ -212,6 +212,71 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     await app.close();
   });
 
+  it('run cost: persisted from the outcome and served on the run list, trace, and PR list', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+    const agent = (
+      await app.inject({
+        method: 'POST',
+        url: '/agents',
+        payload: { name: 'Cost', provider: 'openai', model: 'gpt-4.1', system_prompt: 'cost' },
+      })
+    ).json();
+
+    const body = (
+      await app.inject({ method: 'POST', url: `/pulls/${pr.id}/review`, payload: { agentId: agent.id } })
+    ).json();
+    const runId = body.runs[0].run_id;
+    await waitForPrRuns(pg.handle.db, pr.id, { expected: 1 });
+
+    // MockLLMProvider reports costUsd 0.001 per structured call; the engine sums
+    // across chunks, so the exact total depends on the strategy — assert it is a
+    // real positive number that survived the whole pipeline rather than a literal.
+    const [run] = await pg.handle.db.select().from(t.agentRuns).where(eq(t.agentRuns.id, runId));
+    expect(run!.status).toBe('done');
+    expect(run!.costUsd).toBeGreaterThan(0);
+    const persisted = run!.costUsd!;
+
+    // (a) run list
+    const runs = (await app.inject({ method: 'GET', url: `/pulls/${pr.id}/runs` })).json();
+    expect(runs.find((r: { run_id: string }) => r.run_id === runId).cost_usd).toBeCloseTo(persisted, 10);
+
+    // (b) trace stats
+    const trace = (await app.inject({ method: 'GET', url: `/runs/${runId}/trace` })).json();
+    expect(trace.stats.cost_usd).toBeCloseTo(persisted, 10);
+
+    // (c) PR list — latest COMPLETED run's cost
+    const pulls = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    expect(pulls.find((p: { id: string }) => p.id === pr.id).last_run_cost_usd).toBeCloseTo(persisted, 10);
+
+    await app.close();
+  });
+
+  it('run cost: a PR with no completed run reports null, not zero', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+
+    // A failed run must not become the list's cost — "—" ≠ "$0.00".
+    await pg.handle.db.insert(t.agentRuns).values({
+      workspaceId,
+      prId: pr.id,
+      ranAt: new Date(),
+      provider: 'openai',
+      model: 'gpt-4.1',
+      durationMs: 10,
+      tokensIn: 0,
+      tokensOut: 0,
+      costUsd: null,
+      status: 'failed',
+      error: '429 quota exceeded',
+    });
+
+    const pulls = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    expect(pulls.find((p: { id: string }) => p.id === pr.id).last_run_cost_usd).toBeNull();
+
+    await app.close();
+  });
+
   it('dual-provider structured output: anthropic provider returns the same Review shape', async () => {
     const app = await appWith(REVIEW_FIXTURE, 'anthropic');
     const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
