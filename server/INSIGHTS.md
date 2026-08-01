@@ -8,6 +8,36 @@ Each entry: a dated title, the trap, the fix, and a `file:line` or commit refere
 
 ---
 
+## 2026-08-01 — `pnpm db:seed` cannot fix demo data an older seed already wrote
+
+The seed is insert-only and gated on existence, so changing a fixture is a no-op on any
+database that already has it. Worse, one gate covered four tables — `if (!anyRun)` sat
+above runs, reviews, findings *and* traces — so a single pre-existing `agent_runs` row
+made the whole block unreachable. There is no `db:reset`; the only escape was
+`docker compose down -v`, which also destroys every repo the developer has imported.
+
+This is structurally invisible to CI. `.github/workflows/e2e-web.yml` and every
+`*.it.test.ts` seed an **empty** database, so the only state that can be wrong is the one
+no suite ever constructs. The bug shipped with 137 green tests: reviews written by the
+old seed had `run_id = NULL`, and the Agent-runs timeline attributes findings to a run
+through exactly that column, so the badges silently vanished for every existing install
+while the PR list (which joins on `pr_id`) kept working.
+
+→ Repairing data an older seed wrote is a **migration's** job, not the seed's. `0012` is
+a custom `drizzle-kit generate --custom` migration doing UPDATEs only; it targets
+`model = 'seed' AND run_id IS NULL`, a fingerprint no real review can match because
+`ReviewRunExecutor` creates the run before the review and always passes `runId`
+(`modules/reviews/run-executor.ts:219-229`). It is a strict no-op on a fresh DB, since
+migrations run before the seed and there are no rows to match yet.
+→ Gate fixtures **individually** (per PR, then per run), not with one condition over
+several tables, so a fixture added later still lands on an existing database
+(`src/db/seed.ts`, `src/db/seed-prs.ts`).
+→ Derive denormalized counters from their source rows in the seed rather than typing
+them: the old fixture hand-wrote `findingsCount: 3` beside two findings, and once the UI
+rendered both numbers on one line the disagreement became visible to users.
+→ When a change alters data the seed already produced, prove it against a *reproduced*
+legacy database — no suite will.
+
 ## 2026-07-31 — a `jsonb` column accepts any object, so `tsc` cannot guard a trace
 
 Drizzle types a `jsonb` column's value as `unknown`, so an object literal written into
