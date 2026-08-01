@@ -1,4 +1,8 @@
 {
+  "findings": {
+    "popoverTitle": "{count} findings",
+    "popoverTitleRun": "{count} findings in this run"
+  },
   "finding": {
     "accepted": "accepted",
     "dismissed": "dismissed",
@@ -92,6 +96,7 @@
       "author": "Author",
       "size": "Size",
       "score": "Score",
+      "findings": "Findings",
       "status": "Status",
       "cost": "Cost",
       "updated": "Updated"

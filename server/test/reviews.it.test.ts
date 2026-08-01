@@ -327,6 +327,218 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     await app.close();
   });
 
+  // ---- L01 findings badges — specs/0002-findings-badges.md ----------------
+
+  it('findings: the PR list serves every review\'s findings, not just the newest', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+
+    // A fan-out: one review round, two agents, two `reviews` rows. Taking the
+    // latest would report one agent's findings as the PR's.
+    const [security] = await pg.handle.db
+      .insert(t.reviews)
+      .values({
+        workspaceId,
+        prId: pr.id,
+        kind: 'review',
+        verdict: 'request_changes',
+        summary: 'secret committed',
+        score: 38,
+        model: 'seed',
+      })
+      .returning();
+    const [perf] = await pg.handle.db
+      .insert(t.reviews)
+      .values({
+        workspaceId,
+        prId: pr.id,
+        kind: 'review',
+        verdict: 'comment',
+        summary: 'n+1',
+        score: 64,
+        model: 'seed',
+      })
+      .returning();
+    // A summary row must contribute nothing.
+    await pg.handle.db.insert(t.reviews).values({
+      workspaceId,
+      prId: pr.id,
+      kind: 'summary',
+      verdict: null,
+      summary: 'rollup',
+      score: null,
+      model: 'seed',
+    });
+
+    await pg.handle.db.insert(t.findings).values([
+      {
+        reviewId: security!.id,
+        file: 'src/config.ts',
+        startLine: 12,
+        endLine: 12,
+        severity: 'CRITICAL',
+        category: 'security',
+        title: 'Hardcoded Stripe secret key in commit',
+        rationale: 'sk_live_ literal',
+        confidence: 0.98,
+      },
+      {
+        reviewId: perf!.id,
+        file: 'src/api/users.ts',
+        startLine: 45,
+        endLine: 52,
+        severity: 'WARNING',
+        category: 'perf',
+        title: 'N+1 query in user list endpoint',
+        rationale: 'one query per user',
+        confidence: 0.86,
+      },
+    ]);
+
+    const pulls = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    const row = pulls.find((p: { id: string }) => p.id === pr.id);
+
+    expect(row.findings).toHaveLength(2);
+    expect(row.findings.map((f: { title: string }) => f.title).sort()).toEqual([
+      'Hardcoded Stripe secret key in commit',
+      'N+1 query in user list endpoint',
+    ]);
+    // Shape is the same Finding DTO the detail endpoint serves.
+    const critical = row.findings.find((f: { severity: string }) => f.severity === 'CRITICAL');
+    expect(critical).toMatchObject({
+      category: 'security',
+      file: 'src/config.ts',
+      start_line: 12,
+      end_line: 12,
+      confidence: 0.98,
+    });
+
+    await app.close();
+  });
+
+  it('findings: dismissing one drops it from the list; accepting keeps it', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+
+    const [review] = await pg.handle.db
+      .insert(t.reviews)
+      .values({
+        workspaceId,
+        prId: pr.id,
+        kind: 'review',
+        verdict: 'request_changes',
+        summary: 's',
+        score: 40,
+        model: 'seed',
+      })
+      .returning();
+    const inserted = await pg.handle.db
+      .insert(t.findings)
+      .values([
+        {
+          reviewId: review!.id,
+          file: 'src/config.ts',
+          startLine: 12,
+          endLine: 12,
+          severity: 'CRITICAL',
+          category: 'security',
+          title: 'to dismiss',
+          rationale: 'r',
+          confidence: 0.9,
+        },
+        {
+          reviewId: review!.id,
+          file: 'src/api/users.ts',
+          startLine: 45,
+          endLine: 52,
+          severity: 'WARNING',
+          category: 'perf',
+          title: 'to accept',
+          rationale: 'r',
+          confidence: 0.8,
+        },
+      ])
+      .returning();
+
+    const listFindings = async () => {
+      const pulls = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+      return pulls.find((p: { id: string }) => p.id === pr.id).findings as { title: string }[];
+    };
+
+    expect(await listFindings()).toHaveLength(2);
+
+    const toDismiss = inserted.find((f) => f.title === 'to dismiss')!;
+    const toAccept = inserted.find((f) => f.title === 'to accept')!;
+    await app.inject({ method: 'POST', url: `/findings/${toDismiss.id}/dismiss` });
+    await app.inject({ method: 'POST', url: `/findings/${toAccept.id}/accept` });
+
+    const after = await listFindings();
+    // Dismissed means "not worth carrying" — it leaves the badge count.
+    // Accepted means "this is real" — it stays.
+    expect(after.map((f) => f.title)).toEqual(['to accept']);
+
+    await app.close();
+  });
+
+  it('findings: a review with no run_id still serves its findings (old data degrades, never breaks)', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+
+    // The shape the pre-0002 seed wrote, and what migration 0012 repairs:
+    // a review with neither run_id nor agent_id. The PR list joins on pr_id so
+    // it is unaffected; only the timeline (which joins on run_id) loses the
+    // attribution and falls back to its plain count line.
+    const [orphan] = await pg.handle.db
+      .insert(t.reviews)
+      .values({
+        workspaceId,
+        prId: pr.id,
+        agentId: null,
+        runId: null,
+        kind: 'review',
+        verdict: 'request_changes',
+        summary: 'legacy seed row',
+        score: 61,
+        model: 'seed',
+      })
+      .returning();
+    await pg.handle.db.insert(t.findings).values({
+      reviewId: orphan!.id,
+      file: 'src/config.ts',
+      startLine: 12,
+      endLine: 12,
+      severity: 'CRITICAL',
+      category: 'security',
+      title: 'Hardcoded Stripe secret key in commit',
+      rationale: 'sk_live_ literal',
+      confidence: 0.98,
+    });
+
+    const pulls = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    const row = pulls.find((p: { id: string }) => p.id === pr.id);
+    expect(row.findings).toHaveLength(1);
+    expect(row.findings[0].title).toBe('Hardcoded Stripe secret key in commit');
+
+    // …and it is served with run_id absent, so no run can claim it.
+    const reviews = (await app.inject({ method: 'GET', url: `/pulls/${pr.id}/reviews` })).json();
+    expect(reviews.find((r: { id: string }) => r.id === orphan!.id).run_id).toBeNull();
+
+    await app.close();
+  });
+
+  it('findings: a PR with no reviews returns [], not null', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+
+    const pulls = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    const row = pulls.find((p: { id: string }) => p.id === pr.id);
+
+    expect(row.findings).toEqual([]);
+    expect(row.findings).not.toBeNull();
+
+    await app.close();
+  });
+
   it('dual-provider structured output: anthropic provider returns the same Review shape', async () => {
     const app = await appWith(REVIEW_FIXTURE, 'anthropic');
     const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);

@@ -58,3 +58,4 @@ Which suite proves it — colocated `*.test.tsx` (vitest + jsdom), or an e2e flo
 | Spec | Status | Lesson |
 |---|---|---|
 | [`0001-run-cost-badge.md`](0001-run-cost-badge.md) — cost on the PR list, the run timeline, and the trace drawer | accepted | L01 |
+| [`0002-findings-badges.md`](0002-findings-badges.md) — severity badges + hover preview on the PR list and the run timeline | accepted | L01 |

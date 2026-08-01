@@ -113,8 +113,8 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
 
     // Latest-review SCORE per PR for the list's score ring. Computed on read
     // from reviews (no FK denorm); the list is small, so one IN-query + JS
-    // grouping is cheap. (The per-severity FINDINGS breakdown is intentionally
-    // not surfaced on the list — findings live on the PR detail page.)
+    // grouping is cheap. (The findings themselves are served too — see the
+    // findingsByPr block below, added by specs/0002-findings-badges.md.)
     const prIds = rows.map((r) => r.id);
     const latestReviewByPr = new Map<string, { score: number | null }>();
     if (prIds.length > 0) {
@@ -155,6 +155,13 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       }
     }
 
+    // Outstanding findings per PR for the list's FINDINGS badges (L01,
+    // specs/0002-findings-badges.md) — every review on the PR, minus dismissed.
+    // Reached through container.reviewRepo, not by importing the reviews
+    // module's folder. The comment above about findings living only on the
+    // detail page no longer holds: the list is the triage surface.
+    const findingsByPr = await container.reviewRepo.findingsForPulls(prIds);
+
     const now = Date.now();
     return rows.map((r) => {
       const review = latestReviewByPr.get(r.id);
@@ -180,6 +187,9 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         updated_at: r.updatedAt?.toISOString() ?? null,
         score: review ? review.score : null,
         total_cost_usd: costByPr.get(r.id) ?? null,
+        // `[]`, never null: a never-reviewed PR and a fully-dismissed one both
+        // genuinely have zero outstanding findings and both render no badges.
+        findings: findingsByPr.get(r.id) ?? [],
       };
     });
   });
