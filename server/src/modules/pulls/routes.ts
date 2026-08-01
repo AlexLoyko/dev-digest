@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { PrMeta, PrDetail, GitHubClient, PrReviewComment } from '@devdigest/shared';
 import { PrCommentInput } from '@devdigest/shared';
 import * as t from '../../db/schema.js';
@@ -129,6 +129,32 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       }
     }
 
+    // TOTAL cost per PR for the list's COST column (L01,
+    // specs/0001-run-cost-badge.md) — every run ever, summed. A review fans out
+    // across N agents (N rows), so reporting any single run would show one
+    // agent's share as the PR's cost.
+    //
+    // No status filter: failed/running runs carry cost_usd = null (run-executor
+    // writes null on every path that never reached a model) and SQL SUM skips
+    // nulls, so they contribute nothing without being excluded. SUM over only
+    // nulls returns NULL — which is what keeps "never priced" rendering as "—"
+    // rather than "$0.00".
+    const costByPr = new Map<string, number | null>();
+    if (prIds.length > 0) {
+      const costRows = await container.db
+        .select({
+          prId: t.agentRuns.prId,
+          total: sql<number | null>`sum(${t.agentRuns.costUsd})`,
+        })
+        .from(t.agentRuns)
+        .where(inArray(t.agentRuns.prId, prIds))
+        .groupBy(t.agentRuns.prId);
+      for (const row of costRows) {
+        // sql<number> is an unchecked assertion — coerce, don't trust it.
+        if (row.prId) costByPr.set(row.prId, row.total == null ? null : Number(row.total));
+      }
+    }
+
     const now = Date.now();
     return rows.map((r) => {
       const review = latestReviewByPr.get(r.id);
@@ -153,6 +179,7 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         opened_at: r.openedAt?.toISOString() ?? null,
         updated_at: r.updatedAt?.toISOString() ?? null,
         score: review ? review.score : null,
+        total_cost_usd: costByPr.get(r.id) ?? null,
       };
     });
   });

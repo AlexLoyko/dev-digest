@@ -48,6 +48,7 @@
     "cancelled": "cancelled",
     "running": "running",
     "findings": "{count} finding(s)",
+    "tokens": "{count, number} tok",
     "blockers": " · {count} blockers"
   },
   "smartDiff": {
@@ -92,8 +93,10 @@
       "size": "Size",
       "score": "Score",
       "status": "Status",
+      "cost": "Cost",
       "updated": "Updated"
     },
+    "noCost": "No completed review run yet",
     "filesCount": "{count} files",
     "errorTitle": "Couldn’t load pull requests",
     "errorBody": "The engine returned an error.",

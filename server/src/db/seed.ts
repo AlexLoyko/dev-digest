@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { createDb, type Db } from './client.js';
 import * as t from './schema.js';
+import type { RunTrace } from '../vendor/shared/index.js';
 import { eq, and } from 'drizzle-orm';
 import {
   GENERAL_REVIEWER_PROMPT,
@@ -18,8 +19,10 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
  *
  * Seeds: default workspace + system user + membership, default settings,
  * demo repo (acme/payments-api), PR #482 with files/commits, a sample review
- * with a few findings, and the three built-in agents (General + Security +
- * Performance), all on the default openrouter/deepseek-v4-flash provider+model.
+ * with a few findings, the three built-in agents (General + Security +
+ * Performance), all on the default openrouter/deepseek-v4-flash provider+model,
+ * and three agent runs on PR #482 (two priced + one failed) so the cost surfaces
+ * have data before the first real review.
  *
  * Course lessons populate the other tables (skills, conventions, memory, eval,
  * …) once their features are built — they start empty here.
@@ -218,6 +221,118 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       .from(t.agents)
       .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, a.name)));
     if (!existing) await db.insert(t.agents).values(a);
+  }
+
+  // ---- agent runs for PR #482 (L01 cost badge — specs/0001-run-cost-badge.md) ----
+  // Without these the COST column, the timeline usage line, and the trace COST
+  // tile are all "—" on a fresh install, so the feature is invisible until you
+  // configure a model key. Seeded AFTER the agents block because runs reference
+  // agent ids. Idempotent: skipped once this PR has any run.
+  if (pr) {
+    const [anyRun] = await db.select().from(t.agentRuns).where(eq(t.agentRuns.prId, pr.id));
+    if (!anyRun) {
+      const named = await db
+        .select({ id: t.agents.id, name: t.agents.name })
+        .from(t.agents)
+        .where(eq(t.agents.workspaceId, workspaceId));
+      const idOf = (name: string) => named.find((a) => a.name === name)?.id ?? null;
+      const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000);
+
+      const seedRuns: Array<typeof t.agentRuns.$inferInsert> = [
+        {
+          workspaceId,
+          agentId: idOf('Security Reviewer'),
+          prId: pr.id,
+          ranAt: minutesAgo(12),
+          provider: DEFAULT_PROVIDER,
+          model: DEFAULT_MODEL,
+          durationMs: 8200,
+          tokensIn: 8100,
+          tokensOut: 1019,
+          costUsd: 0.0013,
+          status: 'done',
+          findingsCount: 3,
+          grounding: '3/3 passed',
+          score: 38,
+          blockers: 2,
+        },
+        {
+          workspaceId,
+          agentId: idOf('Performance Reviewer') ?? idOf('General Reviewer'),
+          prId: pr.id,
+          ranAt: minutesAgo(25),
+          provider: DEFAULT_PROVIDER,
+          model: DEFAULT_MODEL,
+          durationMs: 6400,
+          tokensIn: 10600,
+          tokensOut: 1411,
+          costUsd: 0.0014,
+          status: 'done',
+          findingsCount: 2,
+          grounding: '2/2 passed',
+          score: 64,
+          blockers: 0,
+        },
+        // A failed run: no cost data at all. Proves "—" ≠ "$0.00" on every
+        // surface, and that a null-cost run adds nothing to the PR total.
+        {
+          workspaceId,
+          agentId: idOf('General Reviewer'),
+          prId: pr.id,
+          ranAt: minutesAgo(4),
+          provider: DEFAULT_PROVIDER,
+          model: DEFAULT_MODEL,
+          durationMs: 320,
+          tokensIn: 0,
+          tokensOut: 0,
+          costUsd: null,
+          status: 'failed',
+          error: '429 You exceeded your current quota, please check your plan and billing details.',
+          findingsCount: 0,
+          grounding: '0/0 passed',
+        },
+      ];
+      const inserted = await db.insert(t.agentRuns).values(seedRuns).returning();
+
+      // One trace so the run-trace drawer (and its COST tile) has content.
+      const traced = inserted[0]!;
+      // Typed as RunTrace so the compiler enforces the contract's required
+      // fields — the `trace` column is jsonb, so an untyped literal type-checks
+      // happily and only fails at render time in the drawer.
+      const seedTrace: RunTrace = {
+          config: {
+            agent: 'Security Reviewer',
+            version: 'v7',
+            provider: DEFAULT_PROVIDER,
+            model: DEFAULT_MODEL,
+            pr: 482,
+            source: 'local',
+          },
+          stats: {
+            duration_ms: traced.durationMs ?? 0,
+            tokens_in: traced.tokensIn ?? 0,
+            tokens_out: traced.tokensOut ?? 0,
+            cost_usd: traced.costUsd ?? null,
+            findings: traced.findingsCount ?? 0,
+            grounding: traced.grounding ?? '0/0 passed',
+          },
+          prompt_assembly: {
+            system: 'You are a security reviewer.',
+            skills: null,
+            memory: null,
+            specs: null,
+            user: 'Review PR #482 — Add rate limiting to public API endpoints',
+          },
+          tool_calls: [{ tool: 'read_file', args: "'src/config.ts'", meta: '1,240 bytes', ms: 120 }],
+          raw_output: '{"verdict":"request_changes"}',
+          // Required arrays on RunTrace — the executor always writes them, and
+          // TraceBody reads .length unguarded. Omitting them crashes the drawer.
+          memory_pulled: [],
+          specs_read: [],
+        log: [],
+      };
+      await db.insert(t.runTraces).values({ runId: traced.id, trace: seedTrace });
+    }
   }
 
   return { workspaceId, userId };
