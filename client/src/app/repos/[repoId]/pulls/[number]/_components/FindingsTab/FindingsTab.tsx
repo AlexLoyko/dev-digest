@@ -71,6 +71,23 @@ export function FindingsTab({
     setTarget((p) => ({ runId, n: (p?.n ?? 0) + 1 }));
   }, []);
 
+  // Per-run findings for the timeline's severity badges. Derived here rather
+  // than fetched: `runs` (the persisted reviews) is already loaded and each
+  // review carries its run_id plus its full findings. Dismissed findings are
+  // excluded, matching how ReviewRunAccordion counts blockers and what the PR
+  // list serves.
+  const findingsByRunId = React.useMemo(() => {
+    const map = new Map<string, FindingRecord[]>();
+    for (const review of runs) {
+      if (!review.run_id) continue;
+      const live = review.findings.filter((f) => !f.dismissed_at);
+      const existing = map.get(review.run_id);
+      if (existing) existing.push(...live);
+      else map.set(review.run_id, live);
+    }
+    return map;
+  }, [runs]);
+
   return (
     <section>
       {liveRunIds.length > 0 && (
@@ -130,6 +147,7 @@ export function FindingsTab({
           </SectionLabel>
           <RunHistory
             runs={prRuns ?? []}
+            findingsByRunId={findingsByRunId}
             commits={prCommits}
             onOpenTrace={handleOpenTrace}
             onGoToReview={handleGoToReview}

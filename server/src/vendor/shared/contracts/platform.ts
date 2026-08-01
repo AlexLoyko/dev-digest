@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Provider } from './knowledge.js';
+import { Finding } from './findings.js';
 
 /**
  * Platform / scaffolding DTOs owned by F1:
@@ -174,6 +175,11 @@ export const PrMeta = z.object({
   // agents, so any single run is only one agent's share (list endpoint only;
   // null/absent when nothing on this PR has ever been priced).
   total_cost_usd: z.number().nullish(),
+  // Outstanding findings across EVERY review on this PR, minus the dismissed
+  // ones — the list's severity badges and their hover preview (list endpoint
+  // only). `[]` is a real answer (never reviewed, or all dismissed); it is
+  // `nullish()` only because PrDetail extends PrMeta without setting it.
+  findings: z.array(Finding).nullish(),
 });
 export type PrMeta = z.infer<typeof PrMeta>;
 

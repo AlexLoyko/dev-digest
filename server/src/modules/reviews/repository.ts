@@ -14,6 +14,7 @@ import type { Finding, Intent, RunSummary, RunTrace } from '@devdigest/shared';
  */
 
 import type { FindingRow, PullRow } from '../../db/rows.js';
+import type { ReviewDtoFinding } from './helpers.js';
 export type { FindingRow, PullRow };
 
 export type ReviewRow = typeof t.reviews.$inferSelect;
@@ -62,6 +63,15 @@ export class ReviewRepository {
   /** Reviews for a PR (newest first), each with its findings. */
   reviewsForPull(prId: string): Promise<{ review: ReviewRow; findings: FindingRow[] }[]> {
     return reviewRepo.reviewsForPull(this.db, prId);
+  }
+
+  /**
+   * Outstanding (non-dismissed) findings for many PRs, keyed by pr_id. Serves
+   * the PR list's severity badges from the `pulls` module, which reaches this
+   * through `container.reviewRepo` rather than importing the reviews module.
+   */
+  findingsForPulls(prIds: string[]): Promise<Map<string, ReviewDtoFinding[]>> {
+    return reviewRepo.findingsForPulls(this.db, prIds);
   }
 
   getReview(reviewId: string): Promise<ReviewRow | undefined> {

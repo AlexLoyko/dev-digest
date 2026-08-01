@@ -7,6 +7,7 @@ import { useTranslations } from "next-intl";
 import { Icon, Avatar, Badge, CircularScore } from "@devdigest/ui";
 import type { PrMeta } from "@/lib/types";
 import { RunCostBadge } from "@/components/run-cost-badge";
+import { FindingsBadges } from "@/components/findings-badges";
 import { SIZE_COLOR, STATUS_META } from "../../constants";
 import { relativeTime, sizeOf } from "../../helpers";
 import { s } from "../../styles";
@@ -18,6 +19,9 @@ export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
   const st = STATUS_META[pr.status] ?? STATUS_META.needs_review!;
   const { size, lines } = sizeOf(pr);
   const reviewed = pr.score != null; // null score ⇒ PR has never been reviewed
+  // `[]` is the server's real answer for "nothing outstanding"; the ?? only
+  // covers the contract being list-only (nullish on PrMeta).
+  const findings = pr.findings ?? [];
   return (
     <div
       onMouseEnter={() => setH(true)}
@@ -53,6 +57,12 @@ export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
         ) : (
           <span style={s.muted}>—</span>
         )}
+      </div>
+      <div>
+        <FindingsBadges
+          findings={findings}
+          popoverLabel={t("findings.popoverTitle", { count: findings.length })}
+        />
       </div>
       <div>
         <Badge dot color={st.c} bg="transparent">

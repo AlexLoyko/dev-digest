@@ -15,6 +15,7 @@ import {
   Settings,
   Repo,
   PrDetail,
+  PrMeta,
 } from '@devdigest/shared';
 
 /**
@@ -190,6 +191,76 @@ describe('platform DTOs', () => {
         created_by: null,
       }),
     ).not.toThrow();
+    expect(() =>
+      PrDetail.parse({
+        number: 482,
+        title: 't',
+        author: 'a',
+        branch: 'b',
+        base: 'main',
+        head_sha: 'sha',
+        additions: 1,
+        deletions: 0,
+        files_count: 1,
+        status: 'open',
+        files: [],
+        commits: [],
+      }),
+    ).not.toThrow();
+  });
+
+  // L01 findings badges — specs/0002-findings-badges.md
+  it('PrMeta carries the list-only findings array, and PrDetail still parses without it', () => {
+    const parsed = PrMeta.parse({
+      number: 482,
+      title: 't',
+      author: 'a',
+      branch: 'b',
+      base: 'main',
+      head_sha: 'sha',
+      additions: 1,
+      deletions: 0,
+      files_count: 1,
+      status: 'open',
+      score: 61,
+      total_cost_usd: 0.0027,
+      findings: [
+        {
+          id: 'f1',
+          severity: 'CRITICAL',
+          category: 'security',
+          title: 'Hardcoded Stripe secret key in commit',
+          file: 'src/config.ts',
+          start_line: 12,
+          end_line: 12,
+          rationale: 'sk_live_ literal',
+          suggestion: 'Move to env and rotate',
+          confidence: 0.98,
+        },
+      ],
+    });
+    expect(parsed.findings).toHaveLength(1);
+    expect(parsed.findings?.[0]?.severity).toBe('CRITICAL');
+
+    // `[]` is a real answer — a PR with nothing outstanding, not "no data".
+    expect(() =>
+      PrMeta.parse({
+        number: 1,
+        title: 't',
+        author: 'a',
+        branch: 'b',
+        base: 'main',
+        head_sha: 'sha',
+        additions: 0,
+        deletions: 0,
+        files_count: 0,
+        status: 'open',
+        findings: [],
+      }),
+    ).not.toThrow();
+
+    // The field is list-only, so the detail endpoint must parse without it —
+    // this is why it is nullish() rather than nullable().
     expect(() =>
       PrDetail.parse({
         number: 482,

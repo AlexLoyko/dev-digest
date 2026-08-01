@@ -3,8 +3,9 @@
 import React from "react";
 import { useTranslations } from "next-intl";
 import { Badge, Icon, CircularScore, type IconName } from "@devdigest/ui";
-import type { RunSummary, PrCommit } from "@devdigest/shared";
+import type { RunSummary, PrCommit, FindingRecord } from "@devdigest/shared";
 import { RunCostBadge } from "@/components/run-cost-badge";
+import { FindingsBadges } from "@/components/findings-badges";
 
 /**
  * PR timeline — every agent run interleaved with the PR's commits, newest-first
@@ -87,12 +88,16 @@ function tsOf(s: string | null | undefined): number {
 
 export function RunHistory({
   runs,
+  findingsByRunId,
   commits = [],
   onOpenTrace,
   onGoToReview,
   onDelete,
 }: {
   runs: RunSummary[];
+  /** This PR's findings keyed by run_id, for the per-run severity badges. A run
+   *  with no entry (its review was deleted) falls back to the plain count. */
+  findingsByRunId?: Map<string, FindingRecord[]>;
   commits?: PrCommit[];
   /** Open the trace + log drawer for a run (the logs icon). */
   onOpenTrace: (runId: string) => void;
@@ -151,6 +156,7 @@ export function RunHistory({
         const o = outcomeOf(r);
         const tok = (r.tokens_in ?? 0) + (r.tokens_out ?? 0);
         const settled = r.status === "done";
+        const runFindings = findingsByRunId?.get(r.run_id) ?? [];
         return (
           <div key={`run:${r.run_id}`} style={rowStyle}>
             <Badge color={o.color} bg={o.bg} icon={o.icon}>
@@ -191,8 +197,25 @@ export function RunHistory({
                 </div>
               )}
               {settled && (
-                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                  {t("runStatus.findings", { count: r.findings_count ?? 0 })}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    fontSize: 12,
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  {runFindings.length > 0 ? (
+                    <FindingsBadges
+                      findings={runFindings}
+                      popoverLabel={t("findings.popoverTitleRun", { count: runFindings.length })}
+                    />
+                  ) : (
+                    // No review to break down (deleted, or a clean run) — keep
+                    // the count line rather than showing nothing.
+                    t("runStatus.findings", { count: r.findings_count ?? 0 })
+                  )}
                   {(r.blockers ?? 0) > 0 ? t("runStatus.blockers", { count: r.blockers ?? 0 }) : ""}
                 </div>
               )}

@@ -1,8 +1,9 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { Db } from '../../../db/client.js';
 import * as t from '../../../db/schema.js';
 import type { Finding } from '@devdigest/shared';
 import type { FindingRow, PullRow } from '../../../db/rows.js';
+import { findingRowToDto, type ReviewDtoFinding } from '../helpers.js';
 
 export type ReviewRow = typeof t.reviews.$inferSelect;
 
@@ -71,6 +72,47 @@ export async function reviewsForPull(
     review,
     findings: findings.filter((f) => f.reviewId === review.id),
   }));
+}
+
+/**
+ * Outstanding findings for many PRs at once, keyed by pr_id — the PR list's
+ * severity badges and their hover preview (specs/0002-findings-badges.md).
+ *
+ * `findings` has no pr_id, so this joins through `reviews`. Every review on the
+ * PR contributes, not just the newest: one review round fans out across N
+ * agents into N `reviews` rows, so taking the latest would surface one agent's
+ * findings and hide the rest.
+ *
+ * Dismissed findings are excluded — dismissing is the user saying a finding is
+ * not worth carrying, so the badge count reads as "still outstanding" and
+ * dismissing visibly drops it. Accepted findings stay: accepting means the
+ * issue is real, not that it is gone.
+ */
+export async function findingsForPulls(
+  db: Db,
+  prIds: string[],
+): Promise<Map<string, ReviewDtoFinding[]>> {
+  const byPr = new Map<string, ReviewDtoFinding[]>();
+  if (prIds.length === 0) return byPr;
+  const rows = await db
+    .select({ prId: t.reviews.prId, finding: t.findings })
+    .from(t.findings)
+    .innerJoin(t.reviews, eq(t.findings.reviewId, t.reviews.id))
+    .where(
+      and(
+        inArray(t.reviews.prId, prIds),
+        eq(t.reviews.kind, 'review'),
+        isNull(t.findings.dismissedAt),
+      ),
+    )
+    .orderBy(desc(t.reviews.createdAt));
+  for (const row of rows) {
+    const list = byPr.get(row.prId);
+    // The same DTO mapper the detail endpoint uses — one shape, one place.
+    if (list) list.push(findingRowToDto(row.finding));
+    else byPr.set(row.prId, [findingRowToDto(row.finding)]);
+  }
+  return byPr;
 }
 
 export async function getReview(db: Db, reviewId: string): Promise<ReviewRow | undefined> {

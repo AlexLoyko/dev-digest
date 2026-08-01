@@ -2,27 +2,36 @@ import 'dotenv/config';
 import { createDb, type Db } from './client.js';
 import * as t from './schema.js';
 import type { RunTrace } from '../vendor/shared/index.js';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import {
   GENERAL_REVIEWER_PROMPT,
   SECURITY_REVIEWER_PROMPT,
   PERFORMANCE_REVIEWER_PROMPT,
 } from './seed-prompts.js';
+import { SEED_PRS } from './seed-prs.js';
 
 /** Default provider/model for the built-in reviewer agents. */
 const DEFAULT_PROVIDER = 'openrouter' as const;
 const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
+
+const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000);
+const daysAgo = (d: number) => new Date(Date.now() - d * 86_400_000);
 
 /**
  * Seed the starter's demo data. Idempotent: re-running upserts the default
  * workspace/user and the demo fixtures.
  *
  * Seeds: default workspace + system user + membership, default settings,
- * demo repo (acme/payments-api), PR #482 with files/commits, a sample review
- * with a few findings, the three built-in agents (General + Security +
- * Performance), all on the default openrouter/deepseek-v4-flash provider+model,
- * and three agent runs on PR #482 (two priced + one failed) so the cost surfaces
- * have data before the first real review.
+ * demo repo (acme/payments-api), the three built-in agents (General + Security
+ * + Performance) on the default openrouter/deepseek-v4-flash provider+model,
+ * and the demo pull requests from ./seed-prs.ts — each with its runs, its
+ * run-linked reviews, and their findings, so the COST column, the FINDINGS
+ * badges and the Agent-runs timeline all have data before the first real review.
+ *
+ * Guards are PER FIXTURE (per PR, then per PR's runs), not one gate over
+ * everything: that is what lets a PR added to the fixtures later appear on a
+ * database seeded before it existed. Repairing demo data that an OLDER seed
+ * already wrote is a migration's job, not this file's — see 0012.
  *
  * Course lessons populate the other tables (skills, conventions, memory, eval,
  * …) once their features are built — they start empty here.
@@ -94,88 +103,51 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
   }
   const repoId = repo!.id;
 
-  // ---- PR #482 (rate limiting) ----
-  let [pr] = await db
-    .select()
-    .from(t.pullRequests)
-    .where(and(eq(t.pullRequests.repoId, repoId), eq(t.pullRequests.number, 482)));
-  if (!pr) {
-    [pr] = await db
-      .insert(t.pullRequests)
-      .values({
-        workspaceId,
-        repoId,
-        number: 482,
-        title: 'Add rate limiting to public API endpoints',
-        author: 'marisa.koch',
-        branch: 'feat/rate-limit-public',
-        base: 'main',
-        headSha: 'a1b2c3d4e5f6',
-        additions: 247,
-        deletions: 38,
-        filesCount: 9,
-        status: 'needs_review',
-        body: 'Add rate limiting to public API endpoints to prevent abuse from unauthenticated clients.',
-      })
-      .returning();
+  // ---- demo pull requests (fixtures in ./seed-prs.ts) ----
+  // Each PR is guarded independently, so a fixture ADDED later still lands on a
+  // database that was seeded before it existed. Runs/reviews/findings are not
+  // written here: they need the agent ids, so they follow the agents block.
+  const prIds = new Map<number, string>();
+  for (const fx of SEED_PRS) {
+    let [row] = await db
+      .select()
+      .from(t.pullRequests)
+      .where(and(eq(t.pullRequests.repoId, repoId), eq(t.pullRequests.number, fx.number)));
+    if (!row) {
+      const updatedAt = daysAgo(fx.ageDays);
+      [row] = await db
+        .insert(t.pullRequests)
+        .values({
+          workspaceId,
+          repoId,
+          number: fx.number,
+          title: fx.title,
+          author: fx.author,
+          branch: fx.branch,
+          base: 'main',
+          headSha: fx.headSha,
+          // deriveReviewStatus (modules/pulls/status.ts) computes the list's
+          // STATUS chip from these two, not from the `status` column: the head
+          // being reviewed gives reviewed/stale, a mismatch gives needs_review.
+          lastReviewedSha: fx.headReviewed ? fx.headSha : null,
+          additions: fx.additions,
+          deletions: fx.deletions,
+          filesCount: fx.filesCount,
+          status: 'open',
+          body: fx.body,
+          openedAt: daysAgo(fx.ageDays + 1),
+          updatedAt,
+        })
+        .returning();
 
-    // pr_files (subset)
-    await db.insert(t.prFiles).values([
-      { prId: pr!.id, path: 'src/middleware/ratelimit.ts', additions: 84, deletions: 0 },
-      { prId: pr!.id, path: 'src/api/public/webhooks.ts', additions: 31, deletions: 6 },
-      { prId: pr!.id, path: 'src/config.ts', additions: 4, deletions: 0 },
-      { prId: pr!.id, path: 'src/api/users.ts', additions: 7, deletions: 2 },
-    ]);
-
-    // pr_commits
-    await db.insert(t.prCommits).values({
-      prId: pr!.id,
-      sha: 'a1b2c3d4e5f6',
-      message: 'Add token-bucket rate limiter',
-      author: 'marisa.koch',
-    });
-
-    // a sample review + findings so the PR shows results before the first run
-    const [review] = await db
-      .insert(t.reviews)
-      .values({
-        workspaceId,
-        prId: pr!.id,
-        kind: 'review',
-        verdict: 'request_changes',
-        summary:
-          'Solid middleware approach, but a Stripe secret key is committed in plaintext and the user-list endpoint introduces an N+1 query under the new limiter.',
-        score: 61,
-        model: 'seed',
-      })
-      .returning();
-
-    await db.insert(t.findings).values([
-      {
-        reviewId: review!.id,
-        file: 'src/config.ts',
-        startLine: 12,
-        endLine: 12,
-        severity: 'CRITICAL',
-        category: 'security',
-        title: 'Hardcoded Stripe secret key in commit',
-        rationale: 'Line 12 contains a literal `sk_live_` Stripe secret key.',
-        suggestion: 'Move to env var and rotate the key immediately.',
-        confidence: 0.98,
-      },
-      {
-        reviewId: review!.id,
-        file: 'src/api/users.ts',
-        startLine: 45,
-        endLine: 52,
-        severity: 'WARNING',
-        category: 'perf',
-        title: 'N+1 query in user list endpoint',
-        rationale: 'Loop issues one query per user → N+1.',
-        suggestion: 'Use a single IN query and group in memory.',
-        confidence: 0.86,
-      },
-    ]);
+      await db
+        .insert(t.prFiles)
+        .values(fx.files.map((f) => ({ prId: row!.id, ...f })));
+      await db
+        .insert(t.prCommits)
+        .values(fx.commits.map((c) => ({ prId: row!.id, ...c, committedAt: updatedAt })));
+    }
+    prIds.set(fx.number, row!.id);
   }
 
   // ---- built-in agents (the three starter presets) ----
@@ -223,115 +195,132 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
     if (!existing) await db.insert(t.agents).values(a);
   }
 
-  // ---- agent runs for PR #482 (L01 cost badge — specs/0001-run-cost-badge.md) ----
-  // Without these the COST column, the timeline usage line, and the trace COST
-  // tile are all "—" on a fresh install, so the feature is invisible until you
-  // configure a model key. Seeded AFTER the agents block because runs reference
-  // agent ids. Idempotent: skipped once this PR has any run.
-  if (pr) {
-    const [anyRun] = await db.select().from(t.agentRuns).where(eq(t.agentRuns.prId, pr.id));
-    if (!anyRun) {
-      const named = await db
-        .select({ id: t.agents.id, name: t.agents.name })
-        .from(t.agents)
-        .where(eq(t.agents.workspaceId, workspaceId));
-      const idOf = (name: string) => named.find((a) => a.name === name)?.id ?? null;
-      const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000);
+  // ---- runs + reviews + findings, per demo PR --------------------------------
+  // (L01 — specs/0001-run-cost-badge.md and specs/0002-findings-badges.md.)
+  // Without these, COST is "—" and the FINDINGS column is empty on a fresh
+  // install, so both features are invisible until a model key is configured.
+  //
+  // Seeded AFTER the agents block because runs reference agent ids, and gated
+  // PER PR so a fixture added later still lands on an existing database.
+  //
+  // A review always carries runId + agentId: the Agent-runs timeline attributes
+  // findings to a run through reviews.run_id, and a null there is exactly the
+  // orphan that migration 0012 exists to repair.
+  const named = await db
+    .select({ id: t.agents.id, name: t.agents.name })
+    .from(t.agents)
+    .where(eq(t.agents.workspaceId, workspaceId));
+  const idOf = (name: string) => named.find((a) => a.name === name)?.id ?? null;
 
-      const seedRuns: Array<typeof t.agentRuns.$inferInsert> = [
-        {
-          workspaceId,
-          agentId: idOf('Security Reviewer'),
-          prId: pr.id,
-          ranAt: minutesAgo(12),
-          provider: DEFAULT_PROVIDER,
-          model: DEFAULT_MODEL,
-          durationMs: 8200,
-          tokensIn: 8100,
-          tokensOut: 1019,
-          costUsd: 0.0013,
-          status: 'done',
-          findingsCount: 3,
-          grounding: '3/3 passed',
-          score: 38,
-          blockers: 2,
-        },
-        {
-          workspaceId,
-          agentId: idOf('Performance Reviewer') ?? idOf('General Reviewer'),
-          prId: pr.id,
-          ranAt: minutesAgo(25),
-          provider: DEFAULT_PROVIDER,
-          model: DEFAULT_MODEL,
-          durationMs: 6400,
-          tokensIn: 10600,
-          tokensOut: 1411,
-          costUsd: 0.0014,
-          status: 'done',
-          findingsCount: 2,
-          grounding: '2/2 passed',
-          score: 64,
-          blockers: 0,
-        },
-        // A failed run: no cost data at all. Proves "—" ≠ "$0.00" on every
-        // surface, and that a null-cost run adds nothing to the PR total.
-        {
-          workspaceId,
-          agentId: idOf('General Reviewer'),
-          prId: pr.id,
-          ranAt: minutesAgo(4),
-          provider: DEFAULT_PROVIDER,
-          model: DEFAULT_MODEL,
-          durationMs: 320,
-          tokensIn: 0,
-          tokensOut: 0,
-          costUsd: null,
-          status: 'failed',
-          error: '429 You exceeded your current quota, please check your plan and billing details.',
-          findingsCount: 0,
-          grounding: '0/0 passed',
-        },
-      ];
-      const inserted = await db.insert(t.agentRuns).values(seedRuns).returning();
+  for (const fx of SEED_PRS) {
+    const prId = prIds.get(fx.number)!;
+    const [anyRun] = await db.select().from(t.agentRuns).where(eq(t.agentRuns.prId, prId));
+    if (anyRun) continue;
 
-      // One trace so the run-trace drawer (and its COST tile) has content.
-      const traced = inserted[0]!;
+    for (const run of fx.runs) {
+      const findings = run.review?.findings ?? [];
+      const ranAt = minutesAgo(run.minutesAgo);
+      const [inserted] = await db
+        .insert(t.agentRuns)
+        .values({
+          workspaceId,
+          agentId: idOf(run.agent),
+          prId,
+          ranAt,
+          provider: DEFAULT_PROVIDER,
+          model: DEFAULT_MODEL,
+          durationMs: run.durationMs,
+          tokensIn: run.tokensIn,
+          tokensOut: run.tokensOut,
+          costUsd: run.costUsd,
+          status: run.status,
+          error: run.error ?? null,
+          grounding: run.grounding,
+          // Derived from the findings, never hand-written: these denormalized
+          // counters sit on the same timeline row as the severity badges, so a
+          // literal that drifts from the findings renders as a contradiction.
+          findingsCount: findings.length,
+          blockers: run.review ? findings.filter((f) => f.severity === 'CRITICAL').length : null,
+          score: run.review?.score ?? null,
+        })
+        .returning();
+
+      if (!run.review) continue;
+      const [review] = await db
+        .insert(t.reviews)
+        .values({
+          workspaceId,
+          prId,
+          agentId: inserted!.agentId,
+          runId: inserted!.id,
+          kind: 'review',
+          verdict: run.review.verdict,
+          summary: run.review.summary,
+          score: run.review.score,
+          model: DEFAULT_MODEL,
+          // Stamped from the run rather than left to defaultNow(): the
+          // Review-runs accordion orders newest-first and opens the first one,
+          // so insertion order would otherwise decide which run reads as
+          // "latest" — and it disagrees with the runs' own chronology.
+          createdAt: ranAt,
+        })
+        .returning();
+      if (findings.length > 0) {
+        await db.insert(t.findings).values(findings.map((f) => ({ ...f, reviewId: review!.id })));
+      }
+    }
+  }
+
+  // One trace so the run-trace drawer (and its COST tile) has content, on the
+  // primary demo PR's newest completed run.
+  const [tracedRun] = await db
+    .select()
+    .from(t.agentRuns)
+    .where(and(eq(t.agentRuns.prId, prIds.get(482)!), eq(t.agentRuns.status, 'done')))
+    .orderBy(desc(t.agentRuns.ranAt))
+    .limit(1);
+  if (tracedRun) {
+    const [existingTrace] = await db
+      .select()
+      .from(t.runTraces)
+      .where(eq(t.runTraces.runId, tracedRun.id));
+    if (!existingTrace) {
       // Typed as RunTrace so the compiler enforces the contract's required
       // fields — the `trace` column is jsonb, so an untyped literal type-checks
       // happily and only fails at render time in the drawer.
       const seedTrace: RunTrace = {
-          config: {
-            agent: 'Security Reviewer',
-            version: 'v7',
-            provider: DEFAULT_PROVIDER,
-            model: DEFAULT_MODEL,
-            pr: 482,
-            source: 'local',
-          },
-          stats: {
-            duration_ms: traced.durationMs ?? 0,
-            tokens_in: traced.tokensIn ?? 0,
-            tokens_out: traced.tokensOut ?? 0,
-            cost_usd: traced.costUsd ?? null,
-            findings: traced.findingsCount ?? 0,
-            grounding: traced.grounding ?? '0/0 passed',
-          },
-          prompt_assembly: {
-            system: 'You are a security reviewer.',
-            skills: null,
-            memory: null,
-            specs: null,
-            user: 'Review PR #482 — Add rate limiting to public API endpoints',
-          },
-          tool_calls: [{ tool: 'read_file', args: "'src/config.ts'", meta: '1,240 bytes', ms: 120 }],
-          raw_output: '{"verdict":"request_changes"}',
-          // Required arrays on RunTrace — the executor always writes them, and
-          // TraceBody reads .length unguarded. Omitting them crashes the drawer.
-          memory_pulled: [],
-          specs_read: [],
+        config: {
+          agent: 'Security Reviewer',
+          version: 'v7',
+          provider: DEFAULT_PROVIDER,
+          model: DEFAULT_MODEL,
+          pr: 482,
+          source: 'local',
+        },
+        stats: {
+          duration_ms: tracedRun.durationMs ?? 0,
+          tokens_in: tracedRun.tokensIn ?? 0,
+          tokens_out: tracedRun.tokensOut ?? 0,
+          cost_usd: tracedRun.costUsd ?? null,
+          findings: tracedRun.findingsCount ?? 0,
+          grounding: tracedRun.grounding ?? '0/0 passed',
+        },
+        prompt_assembly: {
+          system: 'You are a security reviewer.',
+          skills: null,
+          memory: null,
+          specs: null,
+          user: 'Review PR #482 — Add rate limiting to public API endpoints',
+        },
+        tool_calls: [{ tool: 'read_file', args: "'src/config.ts'", meta: '1,240 bytes', ms: 120 }],
+        raw_output: '{"verdict":"request_changes"}',
+        // Required arrays on RunTrace — the executor always writes them, and
+        // TraceBody reads .length unguarded. Omitting them crashes the drawer.
+        memory_pulled: [],
+        specs_read: [],
         log: [],
       };
-      await db.insert(t.runTraces).values({ runId: traced.id, trace: seedTrace });
+      await db.insert(t.runTraces).values({ runId: tracedRun.id, trace: seedTrace });
     }
   }
 
