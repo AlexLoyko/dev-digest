@@ -43,6 +43,6 @@ export default async function reposRoutes(appBase: FastifyInstance) {
   app.delete('/repos/:id', { schema: { params: IdParams } }, async (req) => {
     const { workspaceId } = await getContext(app.container, req);
     await service.remove(workspaceId, req.params.id);
-    return { deleted: req.params.id };
+    return { ok: true };
   });
 }
