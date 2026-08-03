@@ -21,12 +21,13 @@ export default async function workspaceRoutes(app: FastifyInstance) {
       .where(eq(t.repos.workspaceId, workspaceId));
     return {
       workspaceId,
+      /** @deprecated Read `repos[].clone_path` instead — it is per-repo and always accurate. */
       cloneDir: container.config.cloneDir,
       repos: repos.map((r) => ({
         id: r.id,
         full_name: r.fullName,
         clone_path: r.clonePath,
-        last_polled_at: r.lastPolledAt?.toISOString() ?? null,
+        last_polled_at: r.lastPolledAt?.toString() ?? null,
         cloned: Boolean(r.clonePath),
       })),
     };
