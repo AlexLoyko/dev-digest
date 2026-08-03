@@ -1,4 +1,4 @@
-import { and, count, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
 import type { Db } from '../../db/client.js';
 import * as t from '../../db/schema.js';
 
@@ -129,13 +129,13 @@ export class SkillsRepository {
     return row;
   }
 
-  /** All body versions for a skill, newest first. */
+  /** All body versions for a skill, oldest first, so the history reads chronologically. */
   async listVersions(skillId: string): Promise<SkillVersionRow[]> {
     return this.db
       .select()
       .from(t.skillVersions)
       .where(eq(t.skillVersions.skillId, skillId))
-      .orderBy(desc(t.skillVersions.version));
+      .orderBy(asc(t.skillVersions.version));
   }
 
   /** Restore a skill to a previous version (creates a new version entry). */

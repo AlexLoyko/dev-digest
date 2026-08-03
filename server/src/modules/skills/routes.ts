@@ -43,7 +43,7 @@ const ImportBody = z.object({
  *   POST   /skills                  → create
  *   PUT    /skills/:id              → update (body change → new version)
  *   DELETE /skills/:id              → delete
- *   GET    /skills/:id/versions     → version history (newest first)
+ *   GET    /skills/:id/versions     → version history (oldest first)
  *   POST   /skills/:id/restore      → { version } → restore to that body version
  *   GET    /skills/:id/stats        → usage & finding stats
  *   POST   /skills/import           → { filename, content_base64 } → preview (no persist)
