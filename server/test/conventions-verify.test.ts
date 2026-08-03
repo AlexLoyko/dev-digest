@@ -6,7 +6,12 @@ import {
   verifyEvidence,
   type RawCandidate,
 } from '../src/modules/conventions/verify.js';
-import { buildSkillBody, evidenceRef, slugify } from '../src/modules/conventions/helpers.js';
+import {
+  buildSkillBody,
+  evidenceRef,
+  fenceFor,
+  slugify,
+} from '../src/modules/conventions/helpers.js';
 
 /**
  * The conventions evidence gate — the conventions analogue of the citation
@@ -185,6 +190,13 @@ describe('findSnippetLines', () => {
     expect(findSnippetLines(USERS_TS, 'db.users.find(id)')).toEqual({ start: 4, end: 4 });
   });
 
+  it('refuses a too-generic single-line needle', () => {
+    // `}` or `const` would match almost any file — grounding on that would let
+    // a fabricated rule cite noise as evidence.
+    expect(findSnippetLines(USERS_TS, '}')).toBeNull();
+    expect(findSnippetLines(USERS_TS, 'const')).toBeNull();
+  });
+
   it('returns null for an empty snippet', () => {
     expect(findSnippetLines(USERS_TS, '   \n  ')).toBeNull();
   });
@@ -214,6 +226,8 @@ describe('skill body assembly', () => {
         evidence_start_line: 23,
         evidence_end_line: 31,
         confidence: 0.91,
+        following_files: 3,
+        applicable_files: 3,
         accepted: true,
       },
     ]);
@@ -221,5 +235,30 @@ describe('skill body assembly', () => {
     expect(body).toContain('## always-use-async-await-instead-of-then-chains');
     expect(body).toContain('Detected in `src/api/users.ts:23-31`:');
     expect(body).toContain('```ts');
+  });
+
+  it('lengthens the fence so a snippet cannot escape its own code block', () => {
+    // The snippet is repo content quoted verbatim and this body is fed into
+    // review prompts — a file containing ``` must not break out and have its
+    // text read as instructions.
+    expect(fenceFor('const x = 1;')).toBe('```');
+    expect(fenceFor('here is a fence: ``` and more')).toBe('````');
+
+    const body = buildSkillBody('payments-api', [
+      {
+        id: '1',
+        rule: 'Fenced sample',
+        category: null,
+        evidence_path: 'README.md',
+        evidence_snippet: 'text\n```\nbreakout\n```',
+        evidence_start_line: 1,
+        evidence_end_line: 4,
+        confidence: 0.9,
+        following_files: 1,
+        applicable_files: 1,
+        accepted: true,
+      },
+    ]);
+    expect(body).toContain('````');
   });
 });

@@ -59,11 +59,14 @@ export class ConventionsRepository {
     repoId: string,
     values: InsertConvention[],
   ): Promise<ConventionRow[]> {
+    // An empty batch must NOT reach here — a scan that grounded nothing would
+    // otherwise delete the user's curated set. The service guards it; this is
+    // the second line of defence.
+    if (values.length === 0) return [];
     return this.db.transaction(async (tx) => {
       await tx
         .delete(t.conventions)
         .where(and(eq(t.conventions.workspaceId, workspaceId), eq(t.conventions.repoId, repoId)));
-      if (values.length === 0) return [];
       return tx.insert(t.conventions).values(values).returning();
     });
   }

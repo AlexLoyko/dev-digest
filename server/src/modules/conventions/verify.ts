@@ -1,4 +1,4 @@
-import { MIN_CONFIDENCE } from './constants.js';
+import { MIN_CONFIDENCE, MIN_SUBSTRING_NEEDLE } from './constants.js';
 
 /**
  * Evidence gate for convention candidates — the conventions analogue of
@@ -91,6 +91,11 @@ export function consistencyScore(c: RawCandidate): number {
   return Math.min(claimed, following / observed);
 }
 
+/** Enough substance to be evidence: long enough, and carrying a real identifier. */
+function isSpecificEnough(needle: string): boolean {
+  return needle.length >= MIN_SUBSTRING_NEEDLE && /[A-Za-z0-9_]{3,}/.test(needle);
+}
+
 /** Trim + collapse internal whitespace, so indentation drift never fails a match. */
 function normalizeLine(line: string): string {
   return line.trim().replace(/\s+/g, ' ');
@@ -119,6 +124,11 @@ export function findSnippetLines(
 
   if (snipLines.length === 0 || fileEntries.length === 0) return null;
 
+  // A single trivial line is not evidence however it matches — `}` or `const`
+  // occurs in almost any file, so a fabricated rule could ground itself on
+  // noise. Multi-line snippets are specific enough by construction.
+  if (snipLines.length === 1 && !isSpecificEnough(snipLines[0]!)) return null;
+
   for (let i = 0; i + snipLines.length <= fileEntries.length; i++) {
     let matched = true;
     for (let j = 0; j < snipLines.length; j++) {
@@ -132,10 +142,10 @@ export function findSnippetLines(
     }
   }
 
-  // Single-line snippets are often a partial quote of a longer line.
+  // Single-line snippets are often a partial quote of a longer line. Already
+  // known specific enough by the guard above.
   if (snipLines.length === 1) {
-    const needle = snipLines[0]!;
-    const hit = fileEntries.find((e) => e.norm.includes(needle));
+    const hit = fileEntries.find((e) => e.norm.includes(snipLines[0]!));
     if (hit) return { start: hit.line, end: hit.line };
   }
 

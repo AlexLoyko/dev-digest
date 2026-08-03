@@ -82,6 +82,18 @@ function fenceLang(path: string): string {
   return FENCE_LANG[ext] ?? '';
 }
 
+/**
+ * A fence long enough that `snippet` cannot terminate its own code block.
+ *
+ * The snippet is repo content quoted verbatim, and this body is fed into review
+ * prompts as a skill — a file containing ``` would otherwise break out of the
+ * block and have its text read as instructions.
+ */
+export function fenceFor(snippet: string): string {
+  const longestRun = (snippet.match(/`+/g) ?? []).reduce((n, run) => Math.max(n, run.length), 0);
+  return '`'.repeat(Math.max(3, longestRun + 1));
+}
+
 export function defaultSkillName(repoName: string): string {
   return `${slugify(repoName)}-conventions`;
 }
@@ -113,9 +125,9 @@ export function buildSkillBody(repoName: string, candidates: ConventionDto[]): s
       '',
       `Detected in \`${evidenceRef(c.evidence_path, c.evidence_start_line, c.evidence_end_line)}\`:`,
       '',
-      `\`\`\`${fenceLang(c.evidence_path)}`,
+      `${fenceFor(c.evidence_snippet)}${fenceLang(c.evidence_path)}`,
       c.evidence_snippet.trim(),
-      '```',
+      fenceFor(c.evidence_snippet),
     );
   }
 

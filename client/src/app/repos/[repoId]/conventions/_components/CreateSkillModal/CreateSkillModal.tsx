@@ -21,8 +21,8 @@ import {
   TextInput,
   Toggle,
 } from "@devdigest/ui";
-import { useSkillDraft } from "../../../../../../lib/hooks/conventions";
-import { useCreateSkill } from "../../../../../../lib/hooks/skills";
+import { useSkillDraft } from "@/lib/hooks/conventions";
+import { useCreateSkill } from "@/lib/hooks/skills";
 import { s } from "../styles";
 
 const TYPES = [
@@ -30,7 +30,10 @@ const TYPES = [
   { value: "rubric", label: "rubric" },
   { value: "security", label: "security" },
   { value: "custom", label: "custom" },
-];
+] as const;
+
+/** Derived from TYPES so the two can never drift — no cast at submit. */
+type SkillTypeValue = (typeof TYPES)[number]["value"];
 
 /** Rough token estimate for the body header — 4 chars ≈ 1 token. */
 function estimateTokens(text: string): number {
@@ -53,7 +56,7 @@ export function CreateSkillModal({
 
   const [name, setName] = React.useState("");
   const [description, setDescription] = React.useState("");
-  const [type, setType] = React.useState("convention");
+  const [type, setType] = React.useState<SkillTypeValue>("convention");
   const [enabled, setEnabled] = React.useState(true);
   const [body, setBody] = React.useState("");
   const [dirty, setDirty] = React.useState(false);
@@ -77,7 +80,7 @@ export function CreateSkillModal({
       {
         name: name.trim(),
         description: description.trim(),
-        type: type as "convention" | "rubric" | "security" | "custom",
+        type,
         source: "extracted",
         body,
         enabled,
@@ -139,7 +142,11 @@ export function CreateSkillModal({
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
               <FormField label={t("modal.type")}>
-                <SelectInput value={type} onChange={edit(setType)} options={TYPES} />
+                <SelectInput
+                  value={type}
+                  onChange={(v) => edit(setType)(v as SkillTypeValue)}
+                  options={TYPES as unknown as { value: string; label: string }[]}
+                />
               </FormField>
               <FormField label={t("modal.enabled")} hint={t("modal.enabledHint")}>
                 <Toggle on={enabled} onChange={edit(setEnabled)} />

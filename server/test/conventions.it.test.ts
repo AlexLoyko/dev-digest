@@ -289,6 +289,51 @@ d('conventions extractor (Testcontainers pg)', () => {
     expect(after.candidates[0].accepted).toBe(false);
   });
 
+  it('a scan that grounds NOTHING keeps the previous set instead of wiping it', async () => {
+    // Seed a good set, accept one, then run a scan whose every candidate fails
+    // grounding. A bad model response must not destroy curated conventions.
+    const good = await appWith(EXTRACTION);
+    await good.inject({ method: 'POST', url: `/repos/${repoId}/conventions/extract` });
+    const before = (
+      await good.inject({ method: 'GET', url: `/repos/${repoId}/conventions` })
+    ).json();
+    expect(before.candidates.length).toBeGreaterThan(0);
+    await good.inject({
+      method: 'PATCH',
+      url: `/conventions/${before.candidates[0].id}`,
+      payload: { accepted: true },
+    });
+
+    const ungroundable = await appWith({
+      conventions: [
+        {
+          category: 'ghost',
+          rule: 'Nothing here can be grounded',
+          evidence_path: 'src/api/users.ts',
+          evidence_start_line: 1,
+          evidence_end_line: 1,
+          evidence_snippet: 'const nothingLikeThisExists = true;',
+          occurrences_seen: 1,
+          counterexamples_seen: 0,
+          enforced_by_config: false,
+          confidence: 0.9,
+        },
+      ],
+    });
+    const res = await ungroundable.inject({
+      method: 'POST',
+      url: `/repos/${repoId}/conventions/extract`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().candidates).toHaveLength(0);
+
+    const after = (
+      await good.inject({ method: 'GET', url: `/repos/${repoId}/conventions` })
+    ).json();
+    expect(after.candidates).toHaveLength(before.candidates.length);
+    expect(after.candidates.some((c: { accepted: boolean }) => c.accepted)).toBe(true);
+  });
+
   it('refuses to call the model when nothing is readable', async () => {
     const app = buildApp({
       config: config(),

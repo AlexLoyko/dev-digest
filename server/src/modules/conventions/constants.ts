@@ -17,6 +17,13 @@ export const MAX_CONFIG_CHARS = 3_000;
  */
 export const MIN_CONFIDENCE = 0.35;
 
+/**
+ * Minimum length for the single-line substring fallback in the evidence gate.
+ * Below this a needle (`}`, `const`) matches almost any file, which would let a
+ * fabricated rule ground itself on noise.
+ */
+export const MIN_SUBSTRING_NEEDLE = 12;
+
 /** Hard cap on persisted candidates per scan. */
 export const MAX_CANDIDATES = 20;
 
@@ -25,6 +32,13 @@ export const MAX_CANDIDATES = 20;
  * Bounds the filesystem cost of a pathological model response.
  */
 export const MAX_FALLBACK_READS = 10;
+
+/**
+ * Size ceiling for a tier-2 read. The count cap alone doesn't stop one cited
+ * path aimed at a huge file (or, via symlink, a character device) from being
+ * slurped whole into memory.
+ */
+export const MAX_FALLBACK_FILE_BYTES = 1_000_000;
 
 /**
  * Config files worth showing the model, in priority order. Read best-effort —

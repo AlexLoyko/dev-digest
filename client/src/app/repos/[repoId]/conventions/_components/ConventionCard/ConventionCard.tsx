@@ -8,8 +8,8 @@
 import React from "react";
 import { useTranslations } from "next-intl";
 import { Button, Icon, MonoLink, ProgressBar } from "@devdigest/ui";
-import type { ConventionCandidate } from "../../../../../../lib/hooks/conventions";
-import { githubBlobUrl } from "../../../../../../lib/github-urls";
+import type { ConventionCandidate } from "@/lib/hooks/conventions";
+import { githubBlobUrl } from "@/lib/github-urls";
 import { s } from "../styles";
 
 /** `src/api/users.ts:23-31`, collapsing to `:23` for a single-line span. */
@@ -69,11 +69,25 @@ export function ConventionCard({
         )
       : null;
 
-  const copy = () => {
-    void navigator.clipboard?.writeText(`${label}\n\n${candidate.evidence_snippet}`);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1200);
+  // Only claim success if the write actually succeeded — clipboard rejects on a
+  // denied permission or a non-secure context, and an unconditional check-mark
+  // would lie about it.
+  const copy = async () => {
+    try {
+      await navigator.clipboard?.writeText(`${label}\n\n${candidate.evidence_snippet}`);
+      setCopied(true);
+    } catch {
+      /* denied or unsupported — leave the icon unchanged */
+    }
   };
+
+  // Reset via an effect so the timer is cleared if the card unmounts (rejecting
+  // a convention removes it) rather than setting state on a dead component.
+  React.useEffect(() => {
+    if (!copied) return;
+    const id = setTimeout(() => setCopied(false), 1200);
+    return () => clearTimeout(id);
+  }, [copied]);
 
   return (
     <div style={s.card(candidate.accepted)} data-convention-id={candidate.id}>

@@ -22,7 +22,8 @@
     "acceptAll": "Accept all",
     "deselectAll": "Deselect all",
     "acceptedCount": "{accepted} of {total} accepted",
-    "createSkill": "Create skill"
+    "createSkill": "Create skill",
+    "bulkFailed": "Some conventions could not be updated. Re-check the list."
   },
   "card": {
     "confidence": "Consistency",

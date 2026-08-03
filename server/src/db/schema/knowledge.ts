@@ -71,4 +71,10 @@ export const conventions = pgTable('conventions', {
   followingFiles: integer('following_files'),
   applicableFiles: integer('applicable_files'),
   createdAt: now(),
-});
+},
+(t) => ({
+  // Every query this module makes filters on (workspace_id, repo_id) — list,
+  // the replace-scan delete, accept and reject. Without this they are all seq
+  // scans that grow with the workspace (cf. `memory_ws_idx` on the sibling table).
+  wsRepoIdx: index('conventions_ws_repo_idx').on(t.workspaceId, t.repoId),
+}));

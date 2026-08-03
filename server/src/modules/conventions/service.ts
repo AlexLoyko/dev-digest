@@ -1,9 +1,10 @@
+import { realpath, stat } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import { z } from 'zod';
 import type { RepoRef } from '@devdigest/shared';
 import type { Container } from '../../platform/container.js';
 import { NotFoundError, ValidationError } from '../../platform/errors.js';
-import { RepoRepository, type RepoRow } from '../repos/repository.js';
+import type { RepoRow } from '../repos/repository.js';
 import { getFeatureModelOverride } from '../settings/feature-models.js';
 import { ConventionsRepository, type InsertConvention } from './repository.js';
 import { collectSamples, renderSamples, type SampleFile } from './samples.js';
@@ -21,7 +22,12 @@ import {
   toConventionDto,
   type ConventionDto,
 } from './helpers.js';
-import { DEFAULT_MODEL, MAX_CANDIDATES, MAX_FALLBACK_READS } from './constants.js';
+import {
+  DEFAULT_MODEL,
+  MAX_CANDIDATES,
+  MAX_FALLBACK_FILE_BYTES,
+  MAX_FALLBACK_READS,
+} from './constants.js';
 
 /**
  * Conventions extractor.
@@ -55,6 +61,7 @@ const ExtractedConvention = z.object({
   evidence_end_line: z.number().int().describe('Last line of the evidence.'),
   evidence_snippet: z
     .string()
+    .min(1)
     .describe('The exact lines copied VERBATIM from that file. Must appear in the file character-for-character.'),
   // Evidence BEFORE the score. JSON is generated autoregressively, so a model
   // that has just written `counterexamples_seen: 3` is far less likely to then
@@ -63,10 +70,12 @@ const ExtractedConvention = z.object({
   occurrences_seen: z
     .number()
     .int()
+    .min(0)
     .describe('How many DISTINCT sampled files you saw FOLLOWING this rule.'),
   counterexamples_seen: z
     .number()
     .int()
+    .min(0)
     .describe(
       'How many sampled files you saw doing this a DIFFERENT way. Look for one before answering; report 0 only if you actually checked and found none.',
     ),
@@ -141,15 +150,15 @@ export interface SkillDraft {
 
 export class ConventionsService {
   private repo: ConventionsRepository;
-  private repos: RepoRepository;
 
   constructor(private container: Container) {
     this.repo = new ConventionsRepository(container.db);
-    this.repos = new RepoRepository(container.db);
   }
 
   private async requireRepo(workspaceId: string, repoId: string): Promise<RepoRow> {
-    const repo = await this.repos.getById(workspaceId, repoId);
+    // Via the container, not `new RepoRepository(...)` — a module never reaches
+    // into another module's data layer (see platform/container.ts).
+    const repo = await this.container.reposRepo.getById(workspaceId, repoId);
     if (!repo) throw new NotFoundError('Repo not found');
     return repo;
   }
@@ -256,7 +265,9 @@ export class ConventionsService {
       scannedSha,
     }));
 
-    const saved = await this.repo.replaceForRepo(workspaceId, repoId, rows);
+    // A scan where nothing survived grounding keeps the previous set rather than
+    // wiping it — a bad model response must not destroy curated conventions.
+    const saved = rows.length > 0 ? await this.repo.replaceForRepo(workspaceId, repoId, rows) : [];
 
     const droppedReasons: Record<string, number> = {};
     for (const d of verified.dropped) {
@@ -292,13 +303,14 @@ export class ConventionsService {
   ): Promise<VerifyResult> {
     const files = new Map(samples.map((s) => [s.path, s.text]));
 
-    const root = clonePath ?? this.container.git.clonePathFor(ref);
+    // The root the ADAPTER will actually join against — not `repos.clone_path`,
+    // which is a DB column that can disagree with it.
+    const root = this.container.git.clonePathFor(ref);
     const unknown: string[] = [];
     for (const c of candidates) {
       const p = c.evidence_path;
       if (files.has(p) || unknown.includes(p)) continue;
       if (!isSafeRepoPath(p)) continue; // verify() will drop it as unsafe_path
-      if (!resolve(root, p).startsWith(root.endsWith(sep) ? root : root + sep)) continue;
       unknown.push(p);
       if (unknown.length >= MAX_FALLBACK_READS) break;
     }
@@ -306,6 +318,21 @@ export class ConventionsService {
     await Promise.all(
       unknown.map(async (p) => {
         try {
+          // `isSafeRepoPath` is LEXICAL — it cannot see a symlink. A clone
+          // containing `docs -> /etc` would let a model-cited `docs/passwd`
+          // escape the root, so resolve the real path and re-assert containment
+          // before reading anything.
+          const real = await realpath(resolve(root, p));
+          const realRoot = await realpath(root);
+          if (real !== realRoot && !real.startsWith(realRoot.endsWith(sep) ? realRoot : realRoot + sep)) {
+            return;
+          }
+          // Bounded in COUNT by MAX_FALLBACK_READS and in SIZE here: a cited
+          // path aimed at a huge file (or a character device via symlink) would
+          // otherwise be slurped whole into memory.
+          const info = await stat(real);
+          if (!info.isFile() || info.size > MAX_FALLBACK_FILE_BYTES) return;
+
           const text = await this.container.git.readFile(ref, p);
           // An empty read grounds nothing, and not every GitClient signals a
           // missing file by throwing — treat "no content" as "not resolvable"

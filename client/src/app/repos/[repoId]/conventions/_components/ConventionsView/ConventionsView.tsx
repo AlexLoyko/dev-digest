@@ -6,15 +6,15 @@ import React from "react";
 import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Button, EmptyState, ErrorState, Skeleton } from "@devdigest/ui";
-import { AppShell } from "../../../../../../components/app-shell";
-import { RepoNotFound } from "../../../../../../components/repo-not-found";
-import { useActiveRepo, useRepoNotFound } from "../../../../../../lib/repo-context";
+import { AppShell } from "@/components/app-shell";
+import { RepoNotFound } from "@/components/repo-not-found";
+import { useActiveRepo, useRepoNotFound } from "@/lib/repo-context";
 import {
   useConventions,
   useExtractConventions,
   useRejectConvention,
   useSetConventionAccepted,
-} from "../../../../../../lib/hooks/conventions";
+} from "@/lib/hooks/conventions";
 import { ConventionCard } from "../ConventionCard";
 import { CreateSkillModal } from "../CreateSkillModal";
 import { s } from "../styles";
@@ -57,11 +57,19 @@ export function ConventionsView() {
     );
   }
 
-  const toggleAll = () => {
+  // One useMutation observer only tracks its LAST call, so firing N bare
+  // .mutate()s would swallow every earlier failure. Await them all and surface
+  // whether any rejected.
+  const [bulkError, setBulkError] = React.useState(false);
+  const toggleAll = async () => {
     const next = !allAccepted;
-    for (const c of candidates) {
-      if (c.accepted !== next) setAccepted.mutate({ id: c.id, accepted: next });
-    }
+    const pendingRows = candidates.filter((c) => c.accepted !== next);
+    if (pendingRows.length === 0) return;
+    setBulkError(false);
+    const results = await Promise.allSettled(
+      pendingRows.map((c) => setAccepted.mutateAsync({ id: c.id, accepted: next })),
+    );
+    if (results.some((r) => r.status === "rejected")) setBulkError(true);
   };
 
   const scanned = relativeTime(data?.scanned_at ?? null);
@@ -111,6 +119,12 @@ export function ConventionsView() {
           </div>
         )}
 
+        {bulkError && (
+          <div style={{ fontSize: 13, color: "var(--crit)", marginBottom: 16 }}>
+            {t("page.bulkFailed")}
+          </div>
+        )}
+
         {candidates.length > 0 && (
           <div style={s.toolbar}>
             <Button
@@ -151,6 +165,7 @@ export function ConventionsView() {
             title={t("page.empty.title")}
             body={t("page.empty.body")}
             cta={extract.isPending ? t("page.scanning") : t("page.empty.cta")}
+            ctaLoading={extract.isPending}
             onCta={() => extract.mutate()}
           />
         )}
@@ -161,7 +176,12 @@ export function ConventionsView() {
               <ConventionCard
                 key={c.id}
                 candidate={c}
-                pending={setAccepted.isPending || reject.isPending}
+                // Scoped per row — a shared flag would disable every other
+                // card while one request is in flight.
+                pending={
+                  (setAccepted.isPending && setAccepted.variables?.id === c.id) ||
+                  (reject.isPending && reject.variables === c.id)
+                }
                 repoFullName={activeRepo?.full_name ?? null}
                 scannedSha={data?.scanned_sha ?? null}
                 onToggleAccept={(accepted) => setAccepted.mutate({ id: c.id, accepted })}

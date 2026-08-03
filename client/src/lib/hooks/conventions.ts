@@ -6,23 +6,21 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { ConventionCandidate as SharedConventionCandidate } from "@devdigest/shared";
 import { api } from "../api";
 
-/** `ConventionCandidate` from @devdigest/shared plus the columns this feature added. */
-export interface ConventionCandidate {
-  id: string;
-  rule: string;
+/**
+ * The shared contract plus the columns this feature added. EXTENDS rather than
+ * re-declares, so a rename in the Zod contract fails typecheck here instead of
+ * drifting silently (client/AGENTS.md: never hand-duplicate shared types).
+ */
+export interface ConventionCandidate extends SharedConventionCandidate {
   category: string | null;
-  evidence_path: string;
-  evidence_snippet: string;
   evidence_start_line: number | null;
   evidence_end_line: number | null;
-  /** Consistency 0..1 — how uniformly the repo follows the rule. */
-  confidence: number;
   /** The evidence behind the score: followed in N of M files where it applied. */
   following_files: number | null;
   applicable_files: number | null;
-  accepted: boolean;
 }
 
 export interface ConventionList {
