@@ -4,10 +4,15 @@ import type { CSSProperties } from "react";
 export const s = {
   card: (focused: boolean, sevColor: string, muted: boolean): CSSProperties => ({
     borderRadius: 8,
-    // All-longhand (never mix `border` shorthand with `borderLeft` — React warns
-    // about updating shorthand + non-shorthand on the same rerender).
+    // Per-SIDE colours, not `borderColor`. Avoiding the `border` shorthand is not
+    // enough: `borderColor` is itself a shorthand for the four sides, so setting
+    // it alongside `borderLeftColor` is the same conflict — and it only surfaces
+    // when one of them CHANGES on a rerender, which here is `focused` flipping as
+    // a deep-linked finding is focused. See INSIGHTS.md 2026-08-12.
     borderStyle: "solid",
-    borderColor: focused ? sevColor : "var(--border)",
+    borderTopColor: focused ? sevColor : "var(--border)",
+    borderRightColor: focused ? sevColor : "var(--border)",
+    borderBottomColor: focused ? sevColor : "var(--border)",
     borderWidth: 1,
     borderLeftWidth: 3,
     borderLeftColor: sevColor,

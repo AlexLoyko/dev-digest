@@ -15,7 +15,7 @@ import { OverviewTab } from "./_components/OverviewTab";
 import { FindingsTab } from "./_components/FindingsTab";
 import { DiffTab } from "./_components/DiffTab";
 import RunTraceDrawer from "./_components/RunTraceDrawer";
-import { usePullDetail, usePulls } from "../../../../../lib/hooks";
+import { usePullDetail, usePulls, useSmartDiff } from "../../../../../lib/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePrReviews, useCancelRun, usePrActiveRuns, usePrRuns, useDeleteRun } from "../../../../../lib/hooks/reviews";
 import { useActiveRepo, useRepoNotFound } from "../../../../../lib/repo-context";
@@ -38,6 +38,7 @@ export default function PRDetailPage() {
 
   const isLoading = pullsLoading || (prId != null && detailLoading);
   const { data: reviews, refetch: refetchReviews } = usePrReviews(prId);
+  const { data: smartDiff } = useSmartDiff(prId);
 
   // Live run tracking is SERVER-SOURCED (agent_runs status='running'): survives
   // navigation AND reload, and self-clears via polling when runs finish.
@@ -56,18 +57,33 @@ export default function PRDetailPage() {
   const invalidateRunHistory = () => {
     if (prId) qc.invalidateQueries({ queryKey: ["pr-runs", prId] });
   };
+  // A run classifies (or reclassifies) PR intent as a side effect — refresh the
+  // Intent card without a manual reload once the run settles.
+  const invalidateIntent = () => {
+    if (prId) qc.invalidateQueries({ queryKey: ["pr-intent", prId] });
+  };
+  // Smart Diff's `finding_lines` are derived from persisted findings, so a
+  // finished run changes which files auto-open on the Files tab.
+  const invalidateSmartDiff = () => {
+    if (prId) qc.invalidateQueries({ queryKey: ["smart-diff", prId] });
+  };
 
   // A `finding` param (e.g. clicked from a findings popover) implies the Agent-
   // runs tab, where that finding lives in its review.
   const focusFindingId = search.get("finding");
   const tab = search.get("tab") ?? (focusFindingId ? "findings" : "overview");
   const traceRunId = search.get("trace");
-  const setParam = (key: string, val: string | null) => {
+  // Several params at once, in ONE replace. Two sequential setParam calls would
+  // both build from the same stale `search` and the second would drop the first.
+  const setParams = (entries: [string, string | null][]) => {
     const sp = new URLSearchParams(search.toString());
-    if (val == null) sp.delete(key);
-    else sp.set(key, val);
+    for (const [key, val] of entries) {
+      if (val == null) sp.delete(key);
+      else sp.set(key, val);
+    }
     router.replace(`/repos/${repoId}/pulls/${number}${sp.toString() ? `?${sp.toString()}` : ""}`);
   };
+  const setParam = (key: string, val: string | null) => setParams([[key, val]]);
   const setTab = (t: string) => setParam("tab", t);
 
   // Reviews come newest-first; each is its own run (grouped into accordions).
@@ -137,7 +153,7 @@ export default function PRDetailPage() {
       />
 
       <div style={{ padding: "24px 32px 44px", display: "flex", flexDirection: "column", gap: 24, maxWidth: 1080, margin: "0 auto" }}>
-        {tab === "overview" && <OverviewTab prBody={pr.body} />}
+        {tab === "overview" && <OverviewTab prId={prId} prBody={pr.body} />}
 
         {tab === "findings" && (
           <FindingsTab
@@ -162,6 +178,8 @@ export default function PRDetailPage() {
             onRunDone={() => {
               invalidateActiveRuns();
               invalidateRunHistory();
+              invalidateIntent();
+              invalidateSmartDiff();
               refetchReviews();
             }}
           />
@@ -173,6 +191,18 @@ export default function PRDetailPage() {
             filesCount={pr.files_count}
             files={pr.files}
             canComment={pr.status === "open"}
+            smartDiff={smartDiff}
+            findings={allFindings}
+            repoFullName={repoFullName}
+            headSha={pr.head_sha}
+            // Both params in one replace: `?finding=` alone would be read on the
+            // Files tab, where nothing consumes it.
+            onFocusFinding={(id) =>
+              setParams([
+                ["tab", "findings"],
+                ["finding", id],
+              ])
+            }
           />
         )}
       </div>

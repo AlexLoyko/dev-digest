@@ -8,6 +8,31 @@ Each entry: a dated title, the trap, the fix, and a `file:line` or commit refere
 
 ---
 
+## 2026-08-12 — `borderColor` is itself a shorthand, so avoiding `border` is not enough
+
+`FindingCard`'s `s.card()` deliberately avoided the `border` shorthand and carried a
+comment saying so — "All-longhand (never mix `border` shorthand with `borderLeft`)" —
+and still produced *"Updating a style property during rerender (`borderColor`) when a
+conflicting property is set (`borderLeftColor`)"*. `borderColor` is a shorthand for the
+four per-side colours, so pairing it with `borderLeftColor` is the very conflict the
+comment believed it had escaped. The same latent pair sits in
+`components/FindingPreview/styles.ts`.
+
+Two things make it hard to attribute. It fires only when one of the pair **changes** on
+a rerender — here `focused` flipping as a deep-linked finding is focused — so the card
+renders fine until someone navigates to it, and a feature that merely makes focusing
+common gets the blame. And it surfaces as a dev-overlay "Issue" badge whose console text
+names no file; only opening the overlay gives the `FindingCard.tsx:55` frame. Reading
+the console text alone, the obvious suspect is whatever style code you last edited,
+which in this session cost a fix to an innocent file.
+
+→ When any per-side border property is set, give the other sides their own longhands
+(`borderTopColor` / `borderRightColor` / `borderBottomColor`) instead of `borderColor`.
+The rule generalises: `background`, `font`, `padding`, `margin`, `borderWidth` and
+`borderRadius` are all shorthands that conflict with their per-side longhands the same
+way. (`app/repos/[repoId]/pulls/[number]/_components/FindingCard/styles.ts:5-19`,
+`components/FindingPreview/styles.ts:5-16`)
+
 ## 2026-08-03 — one `NAV` entry lights up three surfaces at once
 
 Adding an item to `NAV` (`vendor/ui/nav.ts`) gives you the sidebar row, the command-palette

@@ -1,6 +1,6 @@
 import type { Db } from '../../db/client.js';
 import * as t from '../../db/schema.js';
-import type { Finding, Intent, RunSummary, RunTrace } from '@devdigest/shared';
+import type { Finding, PrIntent, PrIntentRecord, RunSummary, RunTrace } from '@devdigest/shared';
 
 /**
  * A2 — review data-access. The ONLY layer touching the DB for the review
@@ -127,12 +127,13 @@ export class ReviewRepository {
 
   // ---- intent -------------------------------------------------------------
 
-  upsertIntent(prId: string, intent: Intent): Promise<void> {
-    return pullRepo.upsertIntent(this.db, prId, intent);
+  upsertIntent(prId: string, intent: PrIntent, meta: pullRepo.IntentMeta): Promise<void> {
+    return pullRepo.upsertIntent(this.db, prId, intent, meta);
   }
 
-  getIntent(prId: string): Promise<Intent | undefined> {
-    return pullRepo.getIntent(this.db, prId);
+  /** Full record incl. provenance — used for the (PR + head SHA) cache check. */
+  getIntentRecord(prId: string): Promise<PrIntentRecord | undefined> {
+    return pullRepo.getIntentRecord(this.db, prId);
   }
 
   // ---- observability: agent_runs + run_traces ----------------------------

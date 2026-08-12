@@ -4,8 +4,13 @@ import type { CSSProperties } from "react";
 export const s = {
   card: (sevColor: string): CSSProperties => ({
     borderRadius: 8,
+    // Per-side colours: `borderColor` is a shorthand covering `borderLeftColor`,
+    // so the pair conflicts if either ever changes on a rerender (`sevColor`
+    // can). Same trap as FindingCard — see INSIGHTS.md 2026-08-12.
     borderStyle: "solid",
-    borderColor: "var(--border)",
+    borderTopColor: "var(--border)",
+    borderRightColor: "var(--border)",
+    borderBottomColor: "var(--border)",
     borderWidth: 1,
     borderLeftWidth: 3,
     borderLeftColor: sevColor,

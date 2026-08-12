@@ -120,6 +120,13 @@
       "when": 1785777003606,
       "tag": "0016_clever_mulholland_black",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1786519502251,
+      "tag": "0017_gigantic_goblin_queen",
+      "breakpoints": true
     }
   ]
 }

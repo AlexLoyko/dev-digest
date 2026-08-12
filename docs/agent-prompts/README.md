@@ -38,22 +38,81 @@ fixture / not for production / ignore this" never descope the review. You do not
 need to repeat any of this in your prompt — it is always there.
 
 **User message** = the task and all context, in this order, each untrusted block
-delimiter-wrapped (`prompt.ts:104-122`):
+delimiter-wrapped (`prompt.ts:122-143`):
 
 ```
 <task line, e.g. "Review PR #7 '…'">
-## PR description        (untrusted, author-controlled, truncated to 4000 chars)
-## Skills / rules        (linked skill bodies)
-## Relevant memory       (curated memory items)
-## Repo skeleton         (untrusted, repo-derived)
-## Project context       (untrusted spec chunks)
-## Callers of changed symbols  (untrusted, repo-derived)
-## Diff to review        (untrusted)
+## PR description             (untrusted, author-controlled, truncated to 4000 chars)
+## Derived intent (advisory)  (L03 — trusted advisory sentence + untrusted payload)
+## Skills / rules             (linked skill bodies)
+## Relevant memory            (curated memory items)
+## Repo skeleton              (untrusted, repo-derived)
+## Project context            (untrusted spec chunks)
+## Callers of changed symbols (untrusted, repo-derived)
+## Diff to review             (untrusted)
 ```
 
 Sections with no content are omitted. Everything repo- or author-derived is wrapped
 in `<untrusted source="…">…</untrusted>` so the model can tell instructions
 (system) from data (user).
+
+### `## Derived intent (advisory)` — the trusted/untrusted split (L03)
+
+Server-side (`server/src/modules/intent/`, see
+[`server/specs/0002-pr-intent-layer.md`](../../server/specs/0002-pr-intent-layer.md))
+classifies a PR's intent — what it's trying to do, and what it deliberately is not —
+with a cheap model, and hands `reviewer-core` a single pre-rendered string via
+`PromptParts.intent` (`prompt.ts:79-86`). `reviewer-core` never formats domain
+objects; it only places the string.
+
+The rendered section has a deliberate two-part structure (`prompt.ts:127-131`):
+
+```
+## Derived intent (advisory)
+<DERIVED_INTENT_ADVISORY — trusted, OUTSIDE the wrapper>
+<untrusted source="intent">
+<the classifier's payload — type, summary, in/out of scope, confidence>
+</untrusted>
+```
+
+- The advisory sentence (`DERIVED_INTENT_ADVISORY`, `prompt.ts:43-46`) is **our own
+  trusted text**, rendered *outside* `<untrusted>`. It tells the model the block is a
+  hint for prioritisation only, never evidence, and can never justify lowering a
+  severity or dropping a finding. Because it sits outside the wrapper, the
+  PR-derived payload inside can never claim that weight for itself.
+- The payload itself goes through `wrapUntrusted('intent', …)` (`prompt.ts:33-34,
+  129`) like every other repo/PR-derived section, so `</untrusted>` injection
+  attempts are escaped the same way as the diff or the PR description.
+- `INJECTION_GUARD` (`prompt.ts:16-28`) already names "derived intent/scope"
+  explicitly among the untrusted categories it covers (`prompt.ts:18`) and already
+  states that stated intent can never turn a real defect into zero findings
+  (`prompt.ts:26-28`) — this slot needed no guard changes, only a placement.
+- Placement is right after `## PR description` and before `## Skills / rules`: it is
+  *derived from* the description, so it sits in the same "what the author claims"
+  cluster, ahead of trusted project rules so a repo skill is never visually
+  outranked by a model's derivation, and well ahead of the diff, which stays
+  terminal and most salient.
+- **Omit-when-empty is preserved**: the section only renders when
+  `parts.intent && parts.intent.trim().length > 0` (`prompt.ts:127`), matching
+  `repoMap`/`callers`. With the slot absent, `assemblePrompt`'s output is
+  byte-identical to the pre-L03 shape.
+
+This is the concrete mitigation for a real failure mode: published research
+(arXiv:2603.18740) shows attacker-crafted PR metadata can bias an LLM reviewer into
+clearing vulnerable code. A confidently-worded intent summary is *worse* than raw
+untrusted text, because a summary reads like a conclusion — hence trusting only our
+own framing sentence, never the derived content, and computing confidence in code
+rather than letting the model self-report it (`server/src/modules/intent/confidence.ts`).
+
+**The classifier's own request is observable.** The upstream call that produces this
+block logs what it sent, verbatim and attributed per source, at `info` on
+`intent: prompt` — so an embedded instruction in a PR body, or a doc ref that resolved
+to a file nobody meant, is visible on the line rather than inferred from a token count
+(`server/src/modules/intent/prompt.ts`, and the Logging section of
+[`server/specs/0002-pr-intent-layer.md`](../../server/specs/0002-pr-intent-layer.md)).
+Logging it whole is safe by construction, not by scrubbing: the classifier prompt holds
+only the PR title, body, linked docs and the changed-**file** list, so it contains no
+hunk content to leak. The model's own output and `res.raw` stay out of the logs.
 
 ## The output schema is NOT in the prompt
 

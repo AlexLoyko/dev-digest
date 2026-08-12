@@ -8,6 +8,68 @@ Each entry: a dated title, the trap, the fix, and a `file:line` or commit refere
 
 ---
 
+## 2026-08-12 — an array-of-enum in a structured-output schema hangs `deepseek-v4-flash`
+
+The intent classifier asks the model which evidence it used (`IntentDraft.sources_used`).
+It was typed `z.array(z.string())`, and `confidence.ts` matched those labels against
+`IntentSourceKind` with an exact-match `Set`. Live on a real PR whose linked spec resolved
+and was plainly used — the model's own summary quoted the doc's path — the band came back
+`medium` instead of `high`: the model had labelled it something other than the literal
+`doc`, so the downward clamp read "doc unused" and lowered the grade. Silent, and it looks
+like a rubric bug rather than a string-matching one.
+
+The obvious fix is to constrain the field to the enum so an unmatchable label becomes
+unrepresentable. **That is a worse trap.** With `z.array(IntentSourceKind)` the same
+classification that took 17s never returned at all — killed after 9 minutes, no error, no
+timeout, nothing for the `try/catch` to catch, just an in-flight `agent_run` sitting in
+`running` until a restart reaped it. An array-of-enum inside a JSON-schema-constrained
+response is enough to wedge generation on `openrouter/deepseek-v4-flash`.
+
+→ Keep permissive types (`z.string()`) in structured-output schemas for this provider and
+normalise the model's labels in your own code. Leniency there is safe **by construction**
+when the value only feeds a downward clamp: `min(objectiveRubric, modelRubric)` means a
+false positive can never raise a grade above what the evidence supports — at worst it
+declines to lower it. (`src/modules/intent/confidence.ts:46` `normalizeKind`,
+`src/modules/intent/constants.ts:70`)
+
+## 2026-08-12 — a runtime-value import in `db/schema/*.ts` breaks `pnpm db:generate`
+
+Adding `text('type', { enum: IntentType.options })` to a table needed the `IntentType`
+zod enum, so I imported it as a value from `@devdigest/shared`. `pnpm typecheck` passed;
+`pnpm db:generate` then died with `MODULE_NOT_FOUND` and a `requireStack` ending at
+`src/vendor/shared/index.ts` — pointing at the vendored barrel rather than at the schema
+line that caused it.
+
+drizzle-kit loads the schema through CJS `require`, so a runtime import pulls in
+`vendor/shared/index.ts`, whose `./contracts/*.js` re-exports it cannot resolve. Type-only
+imports are erased before drizzle-kit ever sees them, which is why `import type` in the
+same file is fine and the failure looks unrelated to the edit. Note the trap is
+`db:generate`-only: the API boots and `tsc` is clean, so nothing catches it until you try
+to emit a migration.
+
+→ In `db/schema/*.ts` import from `@devdigest/shared` with `import type` only, and inline
+the enum literal, pinning it to the contract with `as const satisfies readonly IntentType[]`
+so it still cannot silently drift. (`src/db/schema/reviews.ts:3`, `:49-60`, `:87`)
+This is the server-side twin of the client's webpack constraint, which is why
+`client/src/lib/feature-models.ts:3-12` hand-mirrors `FEATURE_MODELS` instead of importing it.
+
+## 2026-08-12 — a new `*.it.test.ts` file can flake an unrelated one, by contention
+
+Adding `test/intent.it.test.ts` (a 6th testcontainers Postgres file) made the full
+`pnpm exec vitest run .it.test` lane fail a test I had not touched: `reviews.it.test.ts`
+"dual-provider structured output", with `Cannot read properties of undefined (reading
+'findings')` — `GET /pulls/:id/reviews` returned `[]` because the run had not finished
+before the assertion.
+
+It reads exactly like a logic regression in the review path, and the diff did touch
+`run-executor.ts`, so proximity is misleading. It is contention: more parallel Postgres
+containers pushed `waitForPrRuns`'s polling budget over the edge. `pnpm exec vitest run
+test/reviews.it.test.ts` alone passes 9/9, and that same case drops from 10075ms to 3481ms.
+
+→ When an integration test fails right after you ADD an unrelated integration file, re-run
+the suspect file in isolation before hunting the regression — attribute by timing, not by
+proximity to your diff. (`test/intent.it.test.ts`, `test/reviews.it.test.ts:329-347`)
+
 ## 2026-07-31 — a `jsonb` column accepts any object, so `tsc` cannot guard a trace
 
 Drizzle types a `jsonb` column's value as `unknown`, so an object literal written into

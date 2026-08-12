@@ -55,4 +55,6 @@ Which hermetic test in `test/` proves it, with a stubbed `LLMProvider`.
 
 ## Index
 
-_Nothing here yet._ List accepted and shipped specs here as they land.
+| Spec | Status | Lesson |
+|---|---|---|
+| [`0001-pr-intent-layer.md`](0001-pr-intent-layer.md) — the `intent` advisory prompt slot: placement, trusted/untrusted split, omit-when-empty guarantee | accepted | L03 |

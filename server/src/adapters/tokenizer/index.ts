@@ -8,8 +8,12 @@
  * lazy-initialised (loading the BPE ranks is the heavy part) and any failure
  * falls back to the `ceil(chars / 4)` heuristic — the renderer must never throw.
  *
- * Scope: in-process, ONLY under modules/repo-intel. Swappable in tests via a
- * mock counter (ContainerOverrides.tokenizer).
+ * Scope: the `Tokenizer` interface and its encoder are in-process, ONLY under
+ * modules/repo-intel, swappable in tests via a mock counter
+ * (ContainerOverrides.tokenizer). The pure `approxTokens` helper below is
+ * additionally imported directly by modules/intent for prompt-size logging —
+ * deliberately NOT through `container.tokenizer`, which would make a logged
+ * estimate depend on an injectable and diverge between test and production.
  */
 import { getEncoding, type Tiktoken } from 'js-tiktoken';
 
