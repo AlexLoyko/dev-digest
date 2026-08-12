@@ -1,0 +1,14 @@
+{
+  "name": "@devdigest/demo-notifications",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "DEMO FIXTURE — not part of the build. See README.md.",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "echo 'demo fixture — intentionally not typechecked'"
+  },
+  "dependencies": {
+    "node-html-parser": "^6.1.13"
+  }
+}
