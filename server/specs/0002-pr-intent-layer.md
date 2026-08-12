@@ -14,7 +14,7 @@ DevDigest feeds a diff plus repo-derived context to a review model but never tel
 reviewer can't distinguish a deliberate scope decision from an oversight, and flags
 "you didn't also update X" on work that explicitly excluded X.
 
-A cheap model reads the PR's title, body, linked ticket, and any linked plan/spec, and
+A cheap model reads the PR's title, body, and any linked plan/spec doc, and
 emits a structured statement of intent — what the PR is trying to do and what it
 deliberately is not. That statement is derived once per PR (cached by head SHA) and
 handed to `reviewer-core` as an advisory prompt block. When the PR links no
@@ -33,10 +33,14 @@ the confidence evidence, and what the client's tooltip shows:
 |---|---|---|---|
 | 1 | `pr_title` | `pull.title` | never (title always present) |
 | 2 | `pr_body` | `pull.body`, capped `MAX_BODY_CHARS = 4000` | `resolved: false` |
-| 3 | `linked_issue` | live `container.github().getIssue(...)`, matched via `#123`/`closes #123` in the body, capped `MAX_ISSUE_CHARS = 2000` | no GitHub token (`ConfigError` → `reason: 'no_github_token'`) or fetch failure (`'issue_fetch_failed'`) → caught, `resolved: false`, classification continues (`sources.ts:104-117`) |
-| 4 | `doc` | **local clone only**, `container.git.readFile`; repo-relative `*.md`/`*.mdx` paths or `github.com/<owner>/<repo>/blob/<ref>/<path>` URLs whose owner/name case-insensitively match the repo's `full_name` (`sources.ts:36-73`) | foreign-repo URL (dropped before any read, logged `reason: 'foreign_repo'`), unsafe path, a read error, or empty/whitespace content → `resolved: false`, logged `intent: doc ref dropped` |
-| 5 | branch name | `pull.branch` | always present (not itself an `IntentSource` kind — folded into the classifier's user text as `Branch: …`) |
-| 6 | `diff` | the already-loaded `UnifiedDiff` via the two-tier code digest below | always available; recorded `resolved: true` unconditionally (`sources.ts:169`) |
+| 3 | `doc` | **local clone only**, `container.git.readFile`; repo-relative `*.md`/`*.mdx` paths or `github.com/<owner>/<repo>/blob/<ref>/<path>` URLs whose owner/name case-insensitively match the repo's `full_name` (`sources.ts:41-67`) | foreign-repo URL (dropped before any read, logged `reason: 'foreign_repo'`), unsafe path, a read error, or empty/whitespace content → `resolved: false`, logged `intent: doc ref dropped` |
+| 4 | `diff` | the already-loaded `UnifiedDiff` via the code digest below | always available; recorded `resolved: true` unconditionally (`sources.ts:173`) |
+
+**Exactly four.** L03 §1 narrowed the classifier's inputs: a `linked_issue` source (live
+`container.github().getIssue`) and the branch name were both removed. Dropping the issue
+lookup removed the resolver's only outbound network call, which is why `resolveSources`
+now makes none at all and every test in `test/intent-sources.test.ts` asserts
+`container.github()` is never reached.
 
 No source ever fetches an arbitrary URL over HTTP — a doc ref is only ever read
 through `container.git.readFile` against the local clone, which is what makes
@@ -50,37 +54,33 @@ most `MAX_DOC_READS = 3` are actually read, each capped at `MAX_DOC_CHARS = 6000
 (`src/modules/_shared/repo-path.ts`, moved out of `modules/conventions/verify.ts`,
 which now re-exports it) — rejects `\0`, absolute paths, and any `..` segment — and
 then a `resolve()` containment check against the clone root
-(`sources.ts:139-143`) before the file is ever touched.
+(`sources.ts:121`) before the file is ever touched, then a `realpath()` containment
+re-check and a `stat()` size/type check (`sources.ts:131-153`) before the read itself.
 
 **`MockGitClient.readFile` returns `''` where the real client throws.** Both cases are
-treated identically as `resolved: false` (`sources.ts:154-158`), so a mocked test
+treated identically as `resolved: false` (`sources.ts:159-162`), so a mocked test
 never reports a false `high` confidence.
 
-### Two-tier code digest — inferring intent from the code
+### Code digest — the changed-file list, and nothing more
 
 `buildCodeDigest` (`src/modules/intent/digest.ts`) is pure — it takes the already-loaded
-`UnifiedDiff` and does no I/O:
+`UnifiedDiff` and does no I/O. It emits a `Changed files:` header plus one
+`+adds/-dels  path` line per file, read off the **hunk headers** only
+(`digest.ts:18-31`). It is always produced, never conditional.
 
-- **Tier 1 — always produced.** Per changed file: an inferred status (`added` if
-  every hunk starts at old line 0, `removed` if every hunk ends at new line 0, else
-  `modified`) plus `+adds/-dels` and the path (`digest.ts:42-47,80-84`).
-- **Tier 2 — only when the caller's `includeCode` flag is set.** Real hunk content,
-  budgeted to `MAX_CODE_CHARS = 6000` total and allocated across files proportional
-  to each file's change size (largest files first, so a budget that runs out drops
-  the least-informative small files, not an arbitrary tail — `digest.ts:95-114`).
-  Paths matching `SKIP_PATTERNS` (lockfiles, `dist/`, `build/`, `vendor/`,
-  `node_modules/`, `*.snap`, `*.min.js`/`*.min.css`, `generated/`,
-  `*.generated.*`) are excluded (`digest.ts:24-38`).
+**Hunk content never reaches the model.** The digest touches only
+`path`/`additions`/`deletions` and never reads `diff.raw`. This is the property that lets
+`intent: prompt` log the whole request verbatim without logging diff content — see
+[Logging](#logging). It is pinned from both sides in
+`test/intent-service.test.ts` with a fixture carrying a fake `sk_live_xxx`.
 
-`IntentService.ensureForPull` (`src/modules/intent/service.ts:74,86`) decides
-`includeCode` with the exact rule: **no `doc` resolved AND no `linked_issue` resolved
-AND the trimmed body is under `MEDIUM_BODY_CHARS = 200` chars.** When the author
-explained themselves, tier 2 is skipped — their statement is better evidence than our
-reading of the diff, and re-deriving it would spend tokens and invite contradiction.
+Bounded by `MAX_DIGEST_FILES = 300`: a PR with an unbounded file count is cut there and
+the remainder noted as `… and N more files`, not silently dropped. The overflow count is
+reported on the prompt log line as `digestOverflow`.
 
 **Code inference never raises confidence.** The rubric (below) grades `diff` no higher
-than `low` — see `confidence.ts:14-23,30`. Source 6 changes the *quality* of the
-summary an undocumented PR gets, never the grade.
+than `low` — see `confidence.ts`. The digest changes the *quality* of the summary an
+undocumented PR gets, never the grade.
 
 ### Confidence rubric — computed by code, never self-reported
 
@@ -89,7 +89,7 @@ summary an undocumented PR gets, never the grade.
 | Best evidence | Band |
 |---|---|
 | at least one `doc` source resolved | `high` |
-| no `doc`, but a `linked_issue` resolved **or** body ≥ `MEDIUM_BODY_CHARS` (200) chars | `medium` |
+| no `doc`, but the trimmed body is ≥ `MEDIUM_BODY_CHARS` (200) chars | `medium` |
 | everything else (including diff-only) | `low` |
 
 The classifier model **never emits a confidence value** — it only emits
@@ -125,7 +125,7 @@ sequenceDiagram
     alt row.head_sha === pull.headSha
         DB-->>I: cached record — no model call
     else miss / stale / no row
-        I->>G: resolve docs from clone + linked issue (best-effort)
+        I->>G: resolve docs from clone (best-effort, no network)
         G-->>I: sources[] each resolved true|false
         I->>L: completeStructured<IntentDraft> (temperature 0)
         L-->>I: sources_used, embedded_instructions_detected,<br/>type, intent, in_scope, out_of_scope
@@ -198,9 +198,10 @@ named as residual risk, not solved here (see Out of scope). What this layer does
       without a `readFile` call.
 - [ ] `MockGitClient.readFile` returning `''` is treated as `resolved: false`,
       matching the real client's throw-on-missing behaviour.
-- [ ] `buildCodeDigest` includes tier 2 only when `includeCode` is true; the char
-      budget is respected and allocated across files rather than consumed by the
-      largest; lockfiles/`dist/`/`vendor/`/`*.snap`/generated paths are excluded.
+- [ ] `buildCodeDigest` emits the changed-file list and nothing else — no hunk
+      content, ever — and cuts at `MAX_DIGEST_FILES` with the overflow noted.
+- [ ] `buildIntentPrompt` assembles the request and the descriptor together, and the
+      logged `system`/`user` match what reached `completeStructured` byte for byte.
 - [ ] `computeConfidence` implements the rubric table and clamps downward only — a
       body claiming "see the spec" cannot manufacture `high` on its own, and an
       empty-body PR (diff-only inference) yields `low`, never `medium`.
@@ -221,7 +222,7 @@ named as residual risk, not solved here (see Out of scope). What this layer does
 `client/src/vendor/shared/`:**
 
 - `contracts/brief.ts` — `IntentType`, `IntentConfidence`,
-  `IntentSourceKind` (`'pr_title' | 'pr_body' | 'linked_issue' | 'doc' | 'diff'`),
+  `IntentSourceKind` (`'pr_title' | 'pr_body' | 'doc' | 'diff'`),
   `IntentSource`, and `Intent` gains three **required** fields: `type`,
   `confidence`, `sources: IntentSource[]`. No separate `IntentClassification` type —
   the fields live directly on `Intent`; there is exactly one shape, one producer
@@ -264,17 +265,65 @@ Fields-object first, lower-case message, all confirmed at their call sites:
 
 | Level | Fields | Message |
 |---|---|---|
-| `info` | `prId, headSha, cached: true, confidence` | `intent: cache hit` (`service.ts:44-47`) |
-| `info` | `prId, docsResolved, docsDropped, ticketResolved, bodyChars` | `intent: sources resolved` (`service.ts:67-70`) |
-| `warn` | `prId, ref, reason: unsafe_path \| foreign_repo \| empty_or_missing \| cap_exceeded` | `intent: doc ref dropped` (`sources.ts:123,131`) |
-| `warn` | `prId, reason: no_github_token \| issue_fetch_failed` | `intent: linked issue unresolved` (`sources.ts:113-114`) |
-| `info` | `prId, headSha, provider, model, type, confidence, clamped, tokensIn, tokensOut, costUsd, durationMs` | `intent: classified` (`service.ts:144-147`) |
-| `warn` | `prId, headSha` | `intent: embedded instructions detected in pr text — reported, not followed` (`service.ts:106-109`) |
-| `warn` | `prId, err` | `intent: classification failed — continuing without intent` (`service.ts:163-166`) |
+| `info` | `prId, headSha` | `intent: recompute forced` (`service.ts:55`) |
+| `info` | `prId, headSha, cached: true, confidence, provider, model` | `intent: cache hit` (`service.ts:57-70`) |
+| `info` | `prId, headSha, docsResolved, docsDropped, bodyChars, sources` | `intent: sources resolved` (`service.ts:88-99`) |
+| `warn` | `prId, ref, reason: unsafe_path \| foreign_repo \| empty_or_missing \| cap_exceeded` | `intent: doc ref dropped` (`sources.ts:104,112`) |
+| `info` | `prId, headSha, feature, provider, model, choiceSource: workspace_override \| registry_default` | `intent: model selected` (`service.ts:107-117`) |
+| `info` | `prId, headSha, provider, model, system, user, parts, systemChars, userChars, digestFilesListed, digestFilesTotal, digestOverflow, estTokensIn` | `intent: prompt` (`service.ts:131-148`) |
+| `warn` | `prId, headSha` | `intent: embedded instructions detected in pr text — reported, not followed` (`service.ts:166-169`) |
+| `info` | `prId, headSha, provider, model, modelReturned, type, confidence, clamped, tokensIn, tokensOut, costUsd, durationMs, attempts, estTokensIn, tokensInDrift, tokensInDriftPct` | `intent: classified` (`service.ts:191-220`) |
+| `warn` | `prId, err` | `intent: classification failed — continuing without intent` (`service.ts:225-228`) |
 
 The run-visible step also flows through `runLog.step('Deriving PR intent', …, { kind:
 'tool' })` (`run-executor.ts:114-119`), so it lands in the Live Log and the persisted
 run trace's event buffer alongside the diff-load step.
+
+### Traceability: the request, as sent
+
+`intent: prompt` carries the classifier's request **verbatim and un-abridged** — the
+system prompt, the assembled user message, and `parts[]`: one entry per source
+(`system | pr_title | pr_body | doc | code_digest`) with its `text`, `chars`,
+`estTokens`, `sourceChars`, `truncated`, and — for docs only — the repo-relative `ref`.
+Two invariants make it trustworthy:
+
+- **The logged prompt IS the sent prompt.** `buildIntentPrompt` (`prompt.ts`) returns the
+  messages and the descriptor together, and a test compares the logged `system`/`user`
+  byte for byte against what reached `completeStructured`
+  (`test/intent-service.test.ts`, "logs the prompt byte-for-byte as it was sent").
+- **Nothing is shortened for the log.** A cap that bit is reported via `truncated` +
+  `sourceChars`, never by excerpting the text — abridging would hide exactly what this
+  line exists to surface: an embedded instruction in a PR body, or a doc ref that
+  resolved to a file nobody meant.
+
+What stays out, and why it is safe without a scrubber:
+
+- **Diff content** — `diff.raw` and hunk bodies are not in the prompt to begin with;
+  `digest.ts` reads only `path`/`additions`/`deletions` off the hunk headers. Asserted on
+  both sides (prompt and log) with a fixture carrying a fake `sk_live_xxx`.
+- **The model's output** — `res.raw` and the classifier's prose never reach a log field.
+  Every log object in `service.ts` is an explicit key list; a `...res` or `...intent`
+  spread would drag both in, so that is a stated invariant with a test behind it.
+- **Secrets** — the classifier reads no `SecretsProvider`/`AppConfig`/`process.env`
+  value, and the doc-read path that could reach a secrets file through a symlink is
+  blocked at `sources.ts:126-148`.
+
+**Accepted residual:** whatever a PR author writes in a description, and whatever a cited
+repo doc contains, now reaches stdout. There is no pino `redact` configured
+(`src/app.ts:50-59`) and this feature deliberately does not add one — a redactor guessing
+at "secret-looking" text would defeat a verbatim log.
+
+`intent: prompt` is emitted **only on a cache miss** — once per (PR, head SHA), or per
+`POST /pulls/:id/intent`. It is not per-agent and not per-run. A cache hit emits none (no
+prompt was built); a failed call emits `intent: prompt` with no `intent: classified` to
+pair with, correlated by `prId` + `headSha`.
+
+`estTokensIn` is `ceil(chars / 4)` (`adapters/tokenizer/index.ts`, `approxTokens`) over
+the system prompt plus the user message, repeated on `intent: classified` so
+estimate-vs-actual reads off one line. Expect `tokensInDrift` to be **systematically
+positive**: the provider's `tokensIn` also counts the JSON-schema/tool-definition envelope
+`completeStructured` wraps the messages in, which the estimate deliberately does not
+model. `tokensInDriftPct` is `null` when a provider reports `tokensIn: 0`.
 
 ## Out of scope
 

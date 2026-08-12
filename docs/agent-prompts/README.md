@@ -104,6 +104,16 @@ untrusted text, because a summary reads like a conclusion — hence trusting onl
 own framing sentence, never the derived content, and computing confidence in code
 rather than letting the model self-report it (`server/src/modules/intent/confidence.ts`).
 
+**The classifier's own request is observable.** The upstream call that produces this
+block logs what it sent, verbatim and attributed per source, at `info` on
+`intent: prompt` — so an embedded instruction in a PR body, or a doc ref that resolved
+to a file nobody meant, is visible on the line rather than inferred from a token count
+(`server/src/modules/intent/prompt.ts`, and the Logging section of
+[`server/specs/0002-pr-intent-layer.md`](../../server/specs/0002-pr-intent-layer.md)).
+Logging it whole is safe by construction, not by scrubbing: the classifier prompt holds
+only the PR title, body, linked docs and the changed-**file** list, so it contains no
+hunk content to leak. The model's own output and `res.raw` stay out of the logs.
+
 ## The output schema is NOT in the prompt
 
 This is the most common source of confusion. The structure of the response — the

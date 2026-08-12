@@ -1,12 +1,12 @@
 import type { Intent, PrIntentRecord, RepoRef, UnifiedDiff } from '@devdigest/shared';
 import type { Container } from '../../platform/container.js';
 import type { PullRow, RepoRow } from '../../db/rows.js';
-import { resolveFeatureModel } from '../settings/feature-models.js';
+import { defaultFeatureModel, getFeatureModelOverride } from '../settings/feature-models.js';
 import { resolveSources } from './sources.js';
-import { buildCodeDigest } from './digest.js';
+import { buildIntentPrompt } from './prompt.js';
 import { computeConfidence } from './confidence.js';
 import { renderIntentBlock } from './render.js';
-import { IntentDraft, MAX_BODY_CHARS, SYSTEM_PROMPT, type Logger } from './constants.js';
+import { IntentDraft, type Logger } from './constants.js';
 
 /**
  * Derives a PR's intent — what it's trying to do, and what it deliberately
@@ -55,7 +55,16 @@ export class IntentService {
         logger?.info({ prId: pull.id, headSha: pull.headSha }, 'intent: recompute forced');
       } else if (cached && cached.head_sha === pull.headSha) {
         logger?.info(
-          { prId: pull.id, headSha: pull.headSha, cached: true, confidence: cached.confidence },
+          {
+            prId: pull.id,
+            headSha: pull.headSha,
+            cached: true,
+            confidence: cached.confidence,
+            // Which model produced this intent, so EVERY path records it — a
+            // cache hit builds no prompt, so this line is the only trace it gets.
+            provider: cached.provider,
+            model: cached.model,
+          },
           'intent: cache hit',
         );
         return cached;
@@ -77,26 +86,68 @@ export class IntentService {
       const bodyChars = (pull.body ?? '').trim().length;
 
       logger?.info(
-        { prId: pull.id, docsResolved, docsDropped, bodyChars },
+        {
+          prId: pull.id,
+          headSha: pull.headSha,
+          docsResolved,
+          docsDropped,
+          bodyChars,
+          // The full list, dropped docs included — those never reach the prompt,
+          // so this line is the only place they are visible.
+          sources,
+        },
         'intent: sources resolved',
       );
 
-      // Always the changed-file list from hunk headers — never hunk content,
-      // never conditional (L03 §1).
-      const codeDigest = buildCodeDigest(diff);
+      // `resolveFeatureModel` is `(await getFeatureModelOverride(…)) ?? DEFAULTS[id]`;
+      // splitting it into its two halves costs no extra query and is the only way
+      // to know WHICH of the two the model came from.
+      const override = await getFeatureModelOverride(this.container, workspaceId, 'review_intent');
+      const choice = override ?? defaultFeatureModel('review_intent');
 
-      const userSections = [
-        `PR title: ${pull.title}`,
-        pull.body
-          ? `PR description:\n${pull.body.trim().slice(0, MAX_BODY_CHARS)}`
-          : 'PR description: (none given)',
-        docTexts.length > 0
-          ? docTexts.map((d) => `Doc "${d.path}":\n${d.text}`).join('\n\n')
-          : undefined,
-        `Code digest:\n${codeDigest}`,
-      ].filter((s): s is string => Boolean(s));
+      logger?.info(
+        {
+          prId: pull.id,
+          headSha: pull.headSha,
+          feature: 'review_intent',
+          provider: choice.provider,
+          model: choice.model,
+          choiceSource: override ? 'workspace_override' : 'registry_default',
+        },
+        'intent: model selected',
+      );
 
-      const choice = await resolveFeatureModel(this.container, workspaceId, 'review_intent');
+      const prompt = buildIntentPrompt({
+        title: pull.title,
+        body: pull.body,
+        docTexts,
+        diff,
+      });
+
+      // The request, as sent. Verbatim and un-abridged on purpose: a truncated
+      // prompt log hides exactly what it exists to surface — an embedded
+      // instruction in a PR body, or a doc ref that resolved to the wrong file.
+      // Every field here is an explicit key; never spread `res`/`intent` into a
+      // log object or the model's own prose and `raw` ride along.
+      logger?.info(
+        {
+          prId: pull.id,
+          headSha: pull.headSha,
+          provider: choice.provider,
+          model: choice.model,
+          system: prompt.system,
+          user: prompt.user,
+          parts: prompt.parts,
+          systemChars: prompt.systemChars,
+          userChars: prompt.userChars,
+          digestFilesListed: prompt.digestFilesListed,
+          digestFilesTotal: prompt.digestFilesTotal,
+          digestOverflow: prompt.digestOverflow,
+          estTokensIn: prompt.estTokensIn,
+        },
+        'intent: prompt',
+      );
+
       const llm = await this.container.llm(choice.provider);
 
       const start = Date.now();
@@ -106,8 +157,8 @@ export class IntentService {
         schemaName: 'IntentDraft',
         temperature: 0,
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userSections.join('\n\n') },
+          { role: 'system', content: prompt.system },
+          { role: 'user', content: prompt.user },
         ],
       });
       const durationMs = Date.now() - start;
@@ -144,6 +195,8 @@ export class IntentService {
           headSha: pull.headSha,
           provider: choice.provider,
           model: choice.model,
+          // Providers may substitute; this is what actually answered.
+          modelReturned: res.model,
           type: intent.type,
           confidence,
           clamped,
@@ -151,6 +204,18 @@ export class IntentService {
           tokensOut: res.tokensOut,
           costUsd: res.costUsd,
           durationMs,
+          attempts: res.attempts,
+          // Repeated from `intent: prompt` so estimate-vs-actual reads off ONE
+          // line. Expect a systematically POSITIVE drift: `tokensIn` also counts
+          // the JSON-schema/tool-definition envelope `completeStructured` wraps
+          // our messages in, which a chars/4 estimate over the prompt text does
+          // not model. Don't "fix" the estimate to chase it.
+          estTokensIn: prompt.estTokensIn,
+          tokensInDrift: res.tokensIn - prompt.estTokensIn,
+          tokensInDriftPct:
+            res.tokensIn > 0
+              ? Math.round(((res.tokensIn - prompt.estTokensIn) / res.tokensIn) * 100)
+              : null,
         },
         'intent: classified',
       );

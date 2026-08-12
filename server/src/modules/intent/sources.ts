@@ -68,8 +68,13 @@ function extractDocRefs(body: string, repoFullName: string): DocExtraction {
 
 export interface SourceResolution {
   sources: IntentSource[];
-  /** Doc contents actually read, each capped `MAX_DOC_CHARS`. */
-  docTexts: { path: string; text: string }[];
+  /**
+   * Doc contents actually read, each capped `MAX_DOC_CHARS`. `sourceChars` is the
+   * length BEFORE the cap, so `prompt.ts` can report truncation as a fact rather
+   * than inferring it from `text.length === MAX_DOC_CHARS` — which lies for a doc
+   * that happens to be exactly that long.
+   */
+  docTexts: { path: string; text: string; sourceChars: number }[];
 }
 
 export async function resolveSources(
@@ -93,7 +98,7 @@ export async function resolveSources(
   // Source 3 — plan/spec docs, local clone only, never HTTP. This resolver
   // makes no network call at all: linked-issue resolution was removed with the
   // input narrowing, and it was the classifier's only outbound request.
-  const docTexts: { path: string; text: string }[] = [];
+  const docTexts: SourceResolution['docTexts'] = [];
   const { candidates, foreignDropped } = extractDocRefs(trimmedBody, repoFullName);
   for (const dropped of foreignDropped) {
     logger?.warn({ prId, ref: dropped, reason: 'foreign_repo' }, 'intent: doc ref dropped');
@@ -155,7 +160,11 @@ export async function resolveSources(
         drop('empty_or_missing');
         continue;
       }
-      docTexts.push({ path: candidate.path, text: text.slice(0, MAX_DOC_CHARS) });
+      docTexts.push({
+        path: candidate.path,
+        text: text.slice(0, MAX_DOC_CHARS),
+        sourceChars: text.length,
+      });
       sources.push({ kind: 'doc', ref: candidate.ref, resolved: true });
     } catch {
       drop('empty_or_missing');

@@ -5,7 +5,12 @@ import { join } from 'node:path';
 import type { RepoRef } from '@devdigest/shared';
 import { resolveSources } from '../src/modules/intent/sources.js';
 import { MockGitClient } from '../src/adapters/mocks.js';
-import { MAX_DOC_BYTES, MAX_DOC_READS, MAX_DOC_REFS } from '../src/modules/intent/constants.js';
+import {
+  MAX_DOC_BYTES,
+  MAX_DOC_CHARS,
+  MAX_DOC_READS,
+  MAX_DOC_REFS,
+} from '../src/modules/intent/constants.js';
 import type { Container } from '../src/platform/container.js';
 
 /**
@@ -120,7 +125,31 @@ describe('resolveSources — doc resolution (happy path)', () => {
       'See docs/plan.md for the design.',
     );
     expect(sources).toContainEqual({ kind: 'doc', ref: 'docs/plan.md', resolved: true });
-    expect(docTexts).toEqual([{ path: 'docs/plan.md', text: 'This is the plan.' }]);
+    expect(docTexts).toEqual([
+      { path: 'docs/plan.md', text: 'This is the plan.', sourceChars: 17 },
+    ]);
+  });
+
+  it('a doc over MAX_DOC_CHARS is sliced, and sourceChars reports its PRE-slice length', async () => {
+    // Under MAX_DOC_BYTES, so it is genuinely read and then capped — the
+    // truncation `prompt.ts` reports must come from this number, not from
+    // `text.length === MAX_DOC_CHARS`, which cannot tell a capped doc from one
+    // that happens to be exactly that long.
+    const long = 'x'.repeat(MAX_DOC_CHARS + 500);
+    await writeFileAt(root, 'docs/plan.md', long);
+    const git = new TempClonedGitClient(root);
+    const container = buildContainer({ git });
+    const { docTexts } = await resolveSources(
+      container,
+      REF,
+      REPO_FULL_NAME,
+      'pr1',
+      'Add rate limiting',
+      'See docs/plan.md for the design.',
+    );
+    expect(docTexts).toHaveLength(1);
+    expect(docTexts[0]!.text).toHaveLength(MAX_DOC_CHARS);
+    expect(docTexts[0]!.sourceChars).toBe(MAX_DOC_CHARS + 500);
   });
 
   it('a same-repo blob URL resolves the same way as a bare path', async () => {
@@ -409,7 +438,9 @@ describe('resolveSources — realpath guard (regression: symlink escape, securit
     );
 
     expect(sources).toContainEqual({ kind: 'doc', ref: 'docs/plan.md', resolved: true });
-    expect(docTexts).toEqual([{ path: 'docs/plan.md', text: 'A perfectly ordinary, in-root plan doc.' }]);
+    expect(docTexts).toEqual([
+      { path: 'docs/plan.md', text: 'A perfectly ordinary, in-root plan doc.', sourceChars: 39 },
+    ]);
   });
 });
 
