@@ -58,3 +58,4 @@ Which suite proves it — unit (`vitest --exclude '**/*.it.test.ts'`), integrati
 |---|---|---|
 | [`0001-run-cost-badge.md`](0001-run-cost-badge.md) — persist run cost and serve it on three routes | accepted | L01 |
 | [`0002-pr-intent-layer.md`](0002-pr-intent-layer.md) — derive PR intent from title/body/ticket/docs/diff, cache by head SHA, serve `GET /pulls/:id/intent` | accepted | L03 |
+| [`0003-smart-diff.md`](0003-smart-diff.md) — group changed files into core/wiring/boilerplate by pure path heuristics, annotate finding lines, serve `GET /pulls/:id/smart-diff` | accepted | L03 |

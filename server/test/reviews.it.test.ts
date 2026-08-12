@@ -414,4 +414,92 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     expect(body.runs.length).toBeGreaterThanOrEqual(2);
     await app.close();
   });
+
+  // ---- Smart Diff (L03) --------------------------------------------------
+  // The grouping/ordering logic is covered exhaustively and hermetically in
+  // `smart-diff.test.ts`; these two cases prove the ROUTE reads real rows —
+  // workspace scoping, and the findings join that `smart-diff.test.ts` can only
+  // assert against hand-built inputs.
+
+  it('smart diff 404s for a PR that does not exist', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/pulls/00000000-0000-4000-8000-000000000000/smart-diff',
+    });
+    expect(res.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it('smart diff groups files before any review, then fills finding_lines from persisted findings', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+
+    // Before: the grouping already works — this is the property that makes
+    // Smart Diff useful on import, with no model in the loop.
+    const before = (
+      await app.inject({ method: 'GET', url: `/pulls/${pr.id}/smart-diff` })
+    ).json();
+    expect(before.groups).toHaveLength(1);
+    expect(before.groups[0].role).toBe('wiring'); // src/config.ts
+    expect(before.groups[0].files[0].finding_lines).toEqual([]);
+    expect(before.split_suggestion.too_big).toBe(false);
+
+    // After: findings written straight to the DB rather than produced by a run.
+    // The route reads them through `reviewsForPull`, so this covers the join
+    // either way — and it does NOT add a second review run to this file, whose
+    // parallel Postgres containers already sit near the polling budget
+    // (INSIGHTS.md, 2026-08-12 "a new *.it.test.ts file can flake an unrelated
+    // one, by contention").
+    const [review] = await pg.handle.db
+      .insert(t.reviews)
+      .values({ workspaceId, prId: pr.id, kind: 'review', verdict: 'comment', score: 50 })
+      .returning();
+    await pg.handle.db.insert(t.findings).values([
+      {
+        reviewId: review!.id,
+        file: 'src/config.ts',
+        startLine: 11,
+        endLine: 12,
+        severity: 'CRITICAL',
+        category: 'security',
+        title: 'Hardcoded Stripe secret key',
+        rationale: 'r',
+        confidence: 0.95,
+      },
+      // A second, overlapping finding — the union must dedupe line 12.
+      {
+        reviewId: review!.id,
+        file: 'src/config.ts',
+        startLine: 12,
+        endLine: 13,
+        severity: 'WARNING',
+        category: 'bug',
+        title: 'Adjacent issue',
+        rationale: 'r',
+        confidence: 0.5,
+      },
+      // A finding on a file the PR does not touch — must not appear anywhere.
+      {
+        reviewId: review!.id,
+        file: 'src/not-in-this-pr.ts',
+        startLine: 3,
+        endLine: 3,
+        severity: 'WARNING',
+        category: 'bug',
+        title: 'Elsewhere',
+        rationale: 'r',
+        confidence: 0.5,
+      },
+    ]);
+
+    const after = (
+      await app.inject({ method: 'GET', url: `/pulls/${pr.id}/smart-diff` })
+    ).json();
+    expect(after.groups).toHaveLength(1);
+    expect(after.groups[0].files).toHaveLength(1);
+    expect(after.groups[0].files[0].path).toBe('src/config.ts');
+    expect(after.groups[0].files[0].finding_lines).toEqual([11, 12, 13]);
+    await app.close();
+  });
 });

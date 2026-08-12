@@ -52,14 +52,26 @@
     "blockers": " · {count} blockers"
   },
   "smartDiff": {
-    "coreLabel": "Core",
+    "coreLabel": "Core logic",
     "wiringLabel": "Wiring",
     "boilerplateLabel": "Boilerplate",
+    "coreDesc": "The substance of the change — review closely",
+    "wiringDesc": "Hooks the core into the app",
+    "boilerplateDesc": "Generated / mechanical — skim",
     "largeTitle": "This PR is large ({lines} changed lines)",
     "largeBody": "Consider splitting it into smaller, focused PRs for easier review:",
     "filesCount": "{count} files",
     "findingLines": "{count} finding-lines",
-    "groupedByRole": "Smart Diff · grouped by role"
+    "groupedByRole": "Smart Diff · grouped by role",
+    "sectionLabel": "Reviewer-ordered diff",
+    "smartOrder": "Smart order",
+    "originalOrder": "Original order",
+    "summary": "{files} files · +{additions} −{deletions}",
+    "sevCRITICAL": "blocker",
+    "sevWARNING": "warning",
+    "sevSUGGESTION": "suggestion",
+    "sevINFO": "info",
+    "openOnGitHub": "Open {path} on GitHub"
   },
   "list": {
     "breadcrumb": "Pull Requests",

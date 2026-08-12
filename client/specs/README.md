@@ -59,3 +59,4 @@ Which suite proves it — colocated `*.test.tsx` (vitest + jsdom), or an e2e flo
 |---|---|---|
 | [`0001-run-cost-badge.md`](0001-run-cost-badge.md) — cost on the PR list, the run timeline, and the trace drawer | accepted | L01 |
 | [`0002-pr-intent-layer.md`](0002-pr-intent-layer.md) — the Overview "PR BRIEF" grid, `IntentCard`, `IntentConfidencePill`, and the findings/trace surfaces | accepted | L03 |
+| [`0003-smart-diff.md`](0003-smart-diff.md) — the Smart order / Original order Files tab, `SmartDiffViewer`, inline severity chips linking back to findings | accepted | L03 |

@@ -1,5 +1,5 @@
 import type { Container } from '../../platform/container.js';
-import type { FindingActionKind, RunEventKind, RunTrace } from '@devdigest/shared';
+import type { FindingActionKind, RunEventKind, RunTrace, SmartDiff } from '@devdigest/shared';
 import { AppError, NotFoundError } from '../../platform/errors.js';
 import type { AgentRow } from '../../db/rows.js';
 import { ReviewRepository } from './repository.js';
@@ -7,6 +7,7 @@ import { type ReviewDto, type ReviewDtoFinding } from './helpers.js';
 import { ReviewRunExecutor, type Logger } from './run-executor.js';
 import { actOnFinding as actOnFindingImpl } from './findings.js';
 import { reviewToDto } from './helpers.js';
+import { buildSmartDiff } from './smart-diff.js';
 
 // Re-export DTO types + converters for backward-compatible imports from
 // './service.js' (these previously lived here; logic now in ./helpers.ts).
@@ -175,5 +176,25 @@ export class ReviewService {
 
   async getRunTrace(runId: string): Promise<RunTrace | undefined> {
     return this.repo.getRunTrace(runId);
+  }
+
+  /**
+   * Smart Diff — the PR's changed files grouped by role and ordered for review.
+   *
+   * Computed per request from two reads we already have; nothing is written and
+   * nothing is cached. Works before any review has run — findings simply
+   * contribute no `finding_lines` yet. See `specs/0003-smart-diff.md`.
+   */
+  async smartDiff(workspaceId: string, prId: string): Promise<SmartDiff> {
+    const pull = await this.repo.getPull(workspaceId, prId);
+    if (!pull) throw new NotFoundError('Pull request not found');
+    const [files, reviews] = await Promise.all([
+      this.repo.getPrFiles(prId),
+      this.repo.reviewsForPull(prId),
+    ]);
+    return buildSmartDiff(
+      files,
+      reviews.flatMap(({ findings }) => findings),
+    );
   }
 }

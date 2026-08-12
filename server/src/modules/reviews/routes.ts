@@ -13,6 +13,7 @@ import { ReviewService } from './service.js';
  *   GET    /runs/:id/events                            → SSE stream of RunEvent (replay-first)
  *   GET    /runs/:id/trace                             → the single-document RunTrace
  *   GET    /pulls/:id/reviews                          → persisted reviews + findings for a PR
+ *   GET    /pulls/:id/smart-diff                       → changed files grouped by role (L03)
  *   POST   /findings/:id/(accept|dismiss)              → finding actions
  */
 const FINDING_ACTIONS = ['accept', 'dismiss'] as const;
@@ -129,6 +130,14 @@ export default async function reviewsRoutes(appBase: FastifyInstance) {
   app.get('/pulls/:id/reviews', { schema: { params: IdParams } }, async (req) => {
     const { workspaceId } = await getContext(container, req);
     return service.reviewsForPull(workspaceId, req.params.id);
+  });
+
+  // ---- Smart Diff — changed files grouped by role, ordered for review -----
+  // Pure computation over pr_files + persisted findings: no model call and no
+  // cache, so it answers correctly the moment a PR is imported (L03).
+  app.get('/pulls/:id/smart-diff', { schema: { params: IdParams } }, async (req) => {
+    const { workspaceId } = await getContext(container, req);
+    return service.smartDiff(workspaceId, req.params.id);
   });
 
   // ---- Delete a whole review run (one agent's pass) + its findings --------
