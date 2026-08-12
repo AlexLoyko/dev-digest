@@ -161,6 +161,16 @@ export interface RepoIntel {
   getUnresolvedReferences(repoId: string, files: string[]): Promise<RefRow[]>;
   /** Top-N file paths by rank, filtered of tests/configs. */
   getConventionSamples(repoId: string, n: number): Promise<string[]>;
+  /**
+   * Size of the pool `getTopFilesByRank`/`getConventionSamples` select FROM —
+   * i.e. every ranked file for the repo, before the junk filter. Lets a caller
+   * report "top N of M" honestly. Degrades to 0 (the scalar analogue of the
+   * `[]` rule above); never throws.
+   *
+   * NOT the same as `IndexState.filesIndexed`, which accumulates across
+   * incremental refreshes and can exceed the repo's file count.
+   */
+  countRankedFiles(repoId: string): Promise<number>;
 
   // --- T3: onboarding reading-path + critical paths (graph required) ------
   getTopFilesByRank(

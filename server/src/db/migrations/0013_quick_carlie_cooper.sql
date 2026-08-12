@@ -1,0 +1,1 @@
+ALTER TABLE "conventions" ADD COLUMN "considered_files" integer;

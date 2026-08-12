@@ -8,6 +8,40 @@ Each entry: a dated title, the trap, the fix, and a `file:line` or commit refere
 
 ---
 
+## 2026-08-03 — one `NAV` entry lights up three surfaces at once
+
+Adding an item to `NAV` (`vendor/ui/nav.ts`) gives you the sidebar row, the command-palette
+command, and the `g`-shortcut together — the group heading in the palette is the entry's
+`section` string, so moving an item between groups moves its palette grouping too. Two
+things must line up or it half-works: the `key` has to match what `activeKeyFor` returns
+(`app-shell/helpers.ts`) or the row never highlights, and `messages/en/shell.json` needs a
+`nav.<key>` label or the sidebar renders the raw key.
+
+## 2026-08-03 — `MonoLink` with no `href` ships a dead control
+
+It does not fall back to text — it renders a `<button className="mono">`, i.e. something
+focusable that does nothing when there's also no `onClick`
+(`vendor/ui/primitives/MonoLink.tsx:32`). So `<MonoLink href={maybeUndefined}>` is the wrong
+shape for an OPTIONAL link: keyboard and AT users get a control that goes nowhere. Branch
+instead: `href ? <MonoLink href={href}>…</MonoLink> : <span className="mono">…</span>`.
+Test with `expect(queryByRole("link")).toBeNull()` **plus** a
+`queryByRole("button", { name: label })` null-check — a plain-text assertion passes either
+way and hides the bug. Evidence:
+`app/repos/[repoId]/conventions/_components/ConventionCard/ConventionCard.tsx`.
+
+## 2026-08-03 — `githubBlobUrl` with an empty sha yields a silently broken link
+
+`sha` is interpolated as a RAW path segment (`lib/github-urls.ts:35`), so `''` produces
+`…/blob//path` — a 404, not an error you can catch. Guard on **truthiness**, never
+`!= null`: `IndexState.lastIndexedSha` is `''` (not null) for a repo with no index row.
+Passing `undefined` for `start` is fine and correctly omits the `#L` anchor.
+
+## 2026-08-03 — the Create-skill modal reuses the generic skill endpoint
+
+It saves through the existing `useCreateSkill()` / `POST /skills`, not a conventions-specific
+route; only the draft (name/description/body) comes from the conventions API. Reach for the
+existing mutation before adding a feature-scoped endpoint.
+
 ## 2026-07-31 — this package's `@devdigest/shared` copy lags the server's
 
 `src/vendor/shared/` and `server/src/vendor/shared/` are independent copies and have

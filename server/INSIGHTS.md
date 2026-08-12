@@ -143,3 +143,113 @@ one migration later, far from the cause.
 `server/test/contracts.test.ts:160` (a `RunTrace` parse). Adding a required contract field
 means updating that `stats: {…}` literal in the same change, or the suite fails somewhere
 that looks unrelated to your diff.
+
+## 2026-08-03 — never derive a user-facing URL from a clone's git remote
+
+`SimpleGitClient.clone` writes the **authenticated** URL into `.git/config`, so
+`git remote get-url origin` inside `<cloneDir>/<owner>/<repo>` returns
+`https://x-access-token:github_pat_…@github.com/<owner>/<repo>`. Putting that in an `href`
+publishes the PAT into the DOM and into any copied link. Build GitHub URLs from
+`repos.full_name` only — which is what `githubBlobUrl`/`githubPrUrl` already expect.
+`adapters/git/simple-git.ts:55-68`.
+
+## 2026-08-03 — never pass a model-supplied path to `container.git.readFile` unguarded
+
+It does a bare `join(clonePath, path)` with no containment check
+(`adapters/git/simple-git.ts:129`), so an `evidence_path` of `../../../../etc/passwd`
+escapes the clone and its contents get rendered in the UI. Guard in two layers — a pure
+`isSafeRepoPath` (rejects `..` segments, posix/windows absolutes, NUL) **plus** a
+`resolve()` prefix check against the clone root — and cap how many such reads one response
+can trigger. `modules/conventions/verify.ts`.
+
+## 2026-08-03 — asking a model for a bare `confidence` returns the ceiling
+
+`confidence: z.number().min(0).max(1)` came back as exactly `1.0` for all 41 candidates
+across three real scans (min 1, max 1, avg 1.0000). Four causes, none of them the model
+being wrong: the question was leading (it rated a rule it proposed *because* it saw
+consistency); the prompt's "report only patterns you can SEE repeated" pre-filtered output
+to certainties; there were no anchors separating 0.7 from 0.9; and **the score was the last
+field in the object** — JSON generates autoregressively, so it was written after an
+assertive rule plus verbatim proof, where the top token is the max. Fix: emit evidence
+counts (`occurrences_seen`, `counterexamples_seen`, `enforced_by_config`) BEFORE the score,
+give named bands, reserve `1.0` for config-enforced rules, and explicitly invite
+inconsistent rules. Same model, same `temperature: 0` → min 0.35 / max 0.95 / mean 0.61
+across 8 distinct values. Raising temperature is NOT the fix — that adds noise, not
+calibration, and costs reproducibility. `modules/conventions/service.ts`.
+
+## 2026-08-03 — clamp a model's self-score to the counts it just reported, downward only
+
+`enforced_by_config ? claimed : min(claimed, following / (following + counterexamples))`.
+The model stays the scorer, but it can no longer contradict its own evidence (claiming 1.0
+while admitting 3 counterexamples), and a harsh self-rating survives untouched because the
+clamp never raises. Config-enforced rules are exempt — a lint rule holds repo-wide even
+when the sampled files show exceptions. `modules/conventions/verify.ts` (`consistencyScore`).
+
+## 2026-08-03 — `MockGitClient.readFile` returns `''` where the real client throws
+
+`SimpleGitClient.readFile` throws ENOENT for a missing path; the mock returns an empty
+string (`adapters/mocks.ts:294`). So any code treating "the read succeeded" as "the file
+exists" behaves differently in tests than in production, and a hermetic test reports the
+wrong reason — a missing file surfaces as "content didn't match". Don't add a `stat`; treat
+empty/whitespace-only content as unresolvable, which is correct under both clients.
+
+## 2026-08-03 — `IndexState.filesIndexed` is not a file count
+
+It is a CUMULATIVE parse counter: `pipeline/incremental.ts:257` writes
+`state.filesIndexed + filesIndexed`, so a file touched by three refreshes counts three
+times and the total can exceed the repo's real size. It also counts files PARSED, not
+walked — parse failures and unsupported languages are excluded (they land in `filesSkipped`)
+yet still get a `file_rank` row. On a freshly-indexed repo the two agree, which is exactly
+how the bug hides. For "how many files does this repo have for ranking purposes" use
+`COUNT(*) FROM file_rank WHERE repo_id = ?` — the candidate set `getRankedPaths` orders —
+exposed as `repoIntel.countRankedFiles()`.
+
+## 2026-08-03 — a feature that mints a skill needs no endpoint of its own
+
+`POST /skills` already accepts `name`/`description`/`type`/`source`/`body`/`enabled`, and
+`SkillsService.create` forwards `source`, so `type:'convention'` + `source:'extracted'` work
+today. Build a *draft* endpoint and let the client save through `POST /skills`. The one
+field that never reaches the DB is `evidence_files` — the repository persists it but the
+route and service never forward it, and nothing reads it beyond `toSkillDto`, so it is dead
+weight rather than a gap worth plumbing. `modules/skills/routes.ts:15`, `service.ts:68`.
+
+## 2026-08-03 — routes declare no response schema, so a module may return a superset
+
+Routes here declare `params`/`body` schemas but NOT response schemas, so a module can return
+more than a vendored contract without touching `vendor/shared/` (do-not-touch, hand-synced
+in two copies). The conventions module adds `category` / `evidence_start_line` /
+`evidence_end_line` on top of `ConventionCandidate` by mapping rows in its own `helpers.ts`
+— no contract edit, no lock-step client sync.
+
+## 2026-08-03 — `getConventionSamples` returns paths, and filters out configs
+
+It is a one-line pass-through to `getTopFilesByRank`, so reading contents is the caller's
+job via `container.git.readFile`. It returns `[]` whenever the repo is unindexed or
+`REPO_INTEL_ENABLED=false` — handle "no samples" as a normal outcome, not an error. It also
+drops configs (`isJunkPath` filters `eslint`/`prettier`/`.config.`), so config sampling has
+to be done separately; root-only config discovery finds nothing in this multi-package repo
+(no root `tsconfig.json` or eslint config). `modules/repo-intel/service.ts:630,713`.
+
+## 2026-08-02 — `db:migrate` compares timestamps, not hashes — so branches silently skip
+
+`pnpm db:migrate` applies only journal entries whose `when` is NEWER than the newest
+`created_at` in `drizzle.__drizzle_migrations`. It does not diff by hash or tag. Working
+several lesson branches against ONE local Postgres therefore skips migrations silently: a
+branch migrated at a later wall-clock date raises the DB head above a sibling branch's older
+`when`, and that branch's migrations never run — while `db:migrate` still prints
+"✓ migrations applied". The symptom is a missing column at runtime, not a migration error.
+
+The same rule bites when MERGING two branches that both added migrations: whichever `when`
+sorts lower is dead on any DB already past it. This is why merging `lesson-2-lab/skills`
+re-timed `0011_far_stryfe` to sort after main's `0010` (commit `8b6d79e`) — at its original
+`when` the skills migration would never have applied on a DB at main's head. Diagnose by
+comparing `meta/_journal.json` against `select created_at from drizzle.__drizzle_migrations`;
+fix by applying the skipped `00NN_*.sql` by hand (they are additive `ALTER … ADD COLUMN`) or
+`docker compose down -v` for a clean rebuild (drops all local data).
+
+## 2026-08-02 — `ERR_MODULE_NOT_FOUND` after a branch switch means stale deps, not a bug
+
+`scripts/dev.sh` installs deps ONLY when `node_modules` is absent (`install_if_needed`), so
+a branch that adds a dependency starts against a stale tree: the API dies with
+`Cannot find package 'fflate'` while the client still comes up fine on :3000 — easy to
+misread as "the stack started". Fix: `cd server && pnpm install`.
