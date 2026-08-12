@@ -105,6 +105,21 @@ export class ReviewRunExecutor {
     }
     runLog.info(`Diff ready — ${diff.files.length} changed file(s); starting ${jobs.length} agent run(s)`);
 
+    // Derive PR intent ONCE per PR (not once per agent) — N agents below share
+    // this single result. Best-effort: unlike the diff load above (which fails
+    // every queued run via `failAll`), a classification failure is caught here
+    // and the slot is simply omitted; it must never fail a run.
+    // `container.intent.ensureForPull` never throws, but `runLog.step` itself
+    // can — belt and braces.
+    const intentRecord = await runLog
+      .step(
+        'Deriving PR intent',
+        () => this.container.intent.ensureForPull(workspaceId, pull, repo, diff, logger),
+        { kind: 'tool' },
+      )
+      .catch(() => undefined);
+    const intentBlock = intentRecord ? this.container.intent.renderBlock(intentRecord) : undefined;
+
     for (const { agent, runId } of jobs) {
       const agentStart = Date.now();
       logger?.info(
@@ -112,7 +127,7 @@ export class ReviewRunExecutor {
         `review: agent "${agent.name}" started (${agent.provider}/${agent.model})`,
       );
       try {
-        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog);
+        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog, intentBlock);
         logger?.info(
           {
             runId,
@@ -144,6 +159,7 @@ export class ReviewRunExecutor {
     agent: AgentRow,
     runId: string,
     parentLog: RunLogger,
+    intentBlock: string | undefined,
   ): Promise<RunOutcome> {
     const start = Date.now();
     // Narrow the fanned-out pre-work logger to THIS run; the shared diff/intent
@@ -210,6 +226,9 @@ export class ReviewRunExecutor {
         // PR author's description/body — untrusted; assemblePrompt wraps +
         // truncates it. Omitted when the PR has no body.
         ...(pull.body ? { prDescription: pull.body } : {}),
+        // L03 — derived intent (advisory), pre-rendered once per PR above.
+        // assemblePrompt omits the section when this is absent.
+        ...(intentBlock ? { intent: intentBlock } : {}),
         task,
         ...(skillBodies.length ? { skills: skillBodies } : {}),
         sessionId: `${repo.owner}/${repo.name}#${pull.number}:${agent.name}`,
@@ -433,7 +452,7 @@ export class ReviewRunExecutor {
         source: 'local',
       },
       stats: { duration_ms: durationMs, tokens_in: 0, tokens_out: 0, cost_usd: null, findings: 0, grounding },
-      prompt_assembly: { system: agent.systemPrompt, skills: null, memory: null, specs: null, user: '' },
+      prompt_assembly: { system: agent.systemPrompt, skills: null, memory: null, specs: null, intent: null, user: '' },
       tool_calls: [],
       raw_output: '',
       memory_pulled: [],

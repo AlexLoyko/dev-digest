@@ -57,3 +57,4 @@ Which suite proves it — unit (`vitest --exclude '**/*.it.test.ts'`), integrati
 | Spec | Status | Lesson |
 |---|---|---|
 | [`0001-run-cost-badge.md`](0001-run-cost-badge.md) — persist run cost and serve it on three routes | accepted | L01 |
+| [`0002-pr-intent-layer.md`](0002-pr-intent-layer.md) — derive PR intent from title/body/ticket/docs/diff, cache by head SHA, serve `GET /pulls/:id/intent` | accepted | L03 |

@@ -6,10 +6,64 @@ import { z } from 'zod';
  */
 
 // ---- Intent ----
+
+/** What kind of change the PR claims to be. */
+export const IntentType = z.enum([
+  'feature',
+  'fix',
+  'refactor',
+  'perf',
+  'docs',
+  'test',
+  'chore',
+  'security',
+  'build',
+  'revert',
+]);
+export type IntentType = z.infer<typeof IntentType>;
+
+/**
+ * How much evidence backed the classification. Computed by the SERVER from which
+ * sources actually resolved — never self-reported by the model, which is
+ * systematically overconfident. Without a resolved plan/spec doc this can never
+ * exceed 'medium'.
+ */
+export const IntentConfidence = z.enum(['high', 'medium', 'low']);
+export type IntentConfidence = z.infer<typeof IntentConfidence>;
+
+/**
+ * The classifier's four inputs. `doc` is a plan/spec read from the local clone;
+ * `diff` is the changed-file list from hunk headers — never hunk content, so a
+ * `diff`-only intent is our reading of the change, not a statement of intent.
+ */
+export const IntentSourceKind = z.enum(['pr_title', 'pr_body', 'doc', 'diff']);
+export type IntentSourceKind = z.infer<typeof IntentSourceKind>;
+
+/** One input the classifier tried to use. `resolved: false` means it was linked but
+    unreadable (missing token, foreign repo, unsafe path, empty file). */
+export const IntentSource = z.object({
+  kind: IntentSourceKind,
+  /** '#482' | 'docs/plans/0003-x.md' | 'pr#482' */
+  ref: z.string(),
+  resolved: z.boolean(),
+});
+export type IntentSource = z.infer<typeof IntentSource>;
+
+/**
+ * What a PR is trying to do, and what it deliberately is not.
+ *
+ * `type`/`confidence`/`sources` are REQUIRED: an intent that cannot say how well
+ * evidenced it is, or what it was derived from, is precisely the thing this
+ * contract exists to prevent. `confidence` is computed by the server from which
+ * sources resolved — the model never self-reports it.
+ */
 export const Intent = z.object({
   intent: z.string(),
   in_scope: z.array(z.string()),
   out_of_scope: z.array(z.string()),
+  type: IntentType,
+  confidence: IntentConfidence,
+  sources: z.array(IntentSource),
 });
 export type Intent = z.infer<typeof Intent>;
 

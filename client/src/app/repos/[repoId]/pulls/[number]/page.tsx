@@ -56,6 +56,11 @@ export default function PRDetailPage() {
   const invalidateRunHistory = () => {
     if (prId) qc.invalidateQueries({ queryKey: ["pr-runs", prId] });
   };
+  // A run classifies (or reclassifies) PR intent as a side effect — refresh the
+  // Intent card without a manual reload once the run settles.
+  const invalidateIntent = () => {
+    if (prId) qc.invalidateQueries({ queryKey: ["pr-intent", prId] });
+  };
 
   // A `finding` param (e.g. clicked from a findings popover) implies the Agent-
   // runs tab, where that finding lives in its review.
@@ -137,7 +142,7 @@ export default function PRDetailPage() {
       />
 
       <div style={{ padding: "24px 32px 44px", display: "flex", flexDirection: "column", gap: 24, maxWidth: 1080, margin: "0 auto" }}>
-        {tab === "overview" && <OverviewTab prBody={pr.body} />}
+        {tab === "overview" && <OverviewTab prId={prId} prBody={pr.body} />}
 
         {tab === "findings" && (
           <FindingsTab
@@ -162,6 +167,7 @@ export default function PRDetailPage() {
             onRunDone={() => {
               invalidateActiveRuns();
               invalidateRunHistory();
+              invalidateIntent();
               refetchReviews();
             }}
           />

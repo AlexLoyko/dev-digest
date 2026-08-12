@@ -1,4 +1,7 @@
 import { MIN_CONFIDENCE, MIN_SUBSTRING_NEEDLE } from './constants.js';
+import { isSafeRepoPath } from '../_shared/repo-path.js';
+
+export { isSafeRepoPath } from '../_shared/repo-path.js';
 
 /**
  * Evidence gate for convention candidates — the conventions analogue of
@@ -50,24 +53,6 @@ export type DropReason =
 export interface VerifyResult {
   kept: VerifiedCandidate[];
   dropped: { rule: string; path: string; reason: DropReason }[];
-}
-
-/**
- * Whether a model-supplied path may be joined onto the clone root.
- *
- * `evidence_path` is model-controlled and `SimpleGitClient.readFile` does a bare
- * `join(clonePath, path)` with no containment check, so `../../../etc/passwd`
- * would escape the clone and land its contents in an evidence snippet rendered
- * in the UI. This is the first gate; the service applies a second `resolve()`
- * containment check before it actually touches disk.
- */
-export function isSafeRepoPath(path: string): boolean {
-  if (!path || path.length > 400) return false;
-  if (path.includes('\0')) return false;
-  const norm = path.replace(/\\/g, '/');
-  if (norm.startsWith('/')) return false; // posix absolute
-  if (/^[a-zA-Z]:\//.test(norm)) return false; // windows absolute
-  return !norm.split('/').some((seg) => seg === '..');
 }
 
 /**

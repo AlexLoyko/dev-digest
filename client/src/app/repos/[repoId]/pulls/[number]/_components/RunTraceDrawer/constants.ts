@@ -18,5 +18,7 @@ export const PROMPT_COLORS = {
   repoMap: "var(--accent)",
   specs: "var(--text-secondary)",
   callers: "var(--warn)",
+  /** L03 — server-derived PR intent, advisory only. */
+  intent: "var(--accent-text)",
   user: "var(--ok)",
 } as const;

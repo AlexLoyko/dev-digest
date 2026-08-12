@@ -67,8 +67,20 @@ describe('AI contracts parse fixtures', () => {
 
   it('Intent / BlastRadius / Risks / PrHistory', () => {
     expect(() =>
-      Intent.parse({ intent: 'x', in_scope: ['a'], out_of_scope: ['b'] }),
+      Intent.parse({
+        intent: 'x',
+        in_scope: ['a'],
+        out_of_scope: ['b'],
+        type: 'feature',
+        confidence: 'low',
+        sources: [{ kind: 'pr_title', ref: 'pr#1', resolved: true }],
+      }),
     ).not.toThrow();
+    // type/confidence/sources are required: an intent must always declare how well
+    // evidenced it is. A bare triple is now invalid by design.
+    expect(() =>
+      Intent.parse({ intent: 'x', in_scope: ['a'], out_of_scope: ['b'] }),
+    ).toThrow();
     expect(() =>
       BlastRadius.parse({
         changed_symbols: [{ name: 'rateLimit', file: 'a.ts', kind: 'function' }],

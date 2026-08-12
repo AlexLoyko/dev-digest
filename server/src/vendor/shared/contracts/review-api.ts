@@ -56,8 +56,19 @@ export const ReviewRunResponse = z.object({
 });
 export type ReviewRunResponse = z.infer<typeof ReviewRunResponse>;
 
-/** Intent persisted for a PR (the Intent plus the pr_id it scopes). */
-export const PrIntentRecord = Intent.extend({ pr_id: z.string() });
+/**
+ * Intent persisted for a PR: the classification plus the pr_id it scopes and the
+ * provenance the L03 Intent Layer records. `head_sha` is the cache key — a row
+ * whose head_sha differs from the PR's current head is stale and gets recomputed.
+ * Nullable throughout because rows predating L03 carry none of it.
+ */
+export const PrIntentRecord = Intent.extend({
+  pr_id: z.string(),
+  head_sha: z.string().nullable(),
+  provider: z.string().nullable(),
+  model: z.string().nullable(),
+  classified_at: z.string().nullable(),
+});
 export type PrIntentRecord = z.infer<typeof PrIntentRecord>;
 
 /** Smart-diff response for a PR (the SmartDiff). */

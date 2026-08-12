@@ -113,5 +113,16 @@
   },
   "findingsPopover": {
     "header": "{count} findings"
+  },
+  "intent": {
+    "card": {
+      "title": "INTENT",
+      "recompute": "Recompute",
+      "recomputing": "Recomputing…",
+      "inScope": "In scope",
+      "outOfScope": "Out of scope",
+      "emptyState": "Intent is derived automatically on the next review.",
+      "errorState": "Couldn't load the intent for this PR. Try Recompute, or reload the page."
+    }
   }
 }
