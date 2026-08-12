@@ -8,6 +8,7 @@ import { getContext } from '../_shared/context.js';
 import { IdParams } from '../_shared/schemas.js';
 import { AppError, NotFoundError } from '../../platform/errors.js';
 import { deriveReviewStatus } from './status.js';
+import { findingRowToDto } from '../reviews/helpers.js';
 
 /**
  * F1 — pulls module. PR import via Octokit (list + per-PR detail).
@@ -111,21 +112,68 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       }
     }
 
-    // Latest-review SCORE per PR for the list's score ring. Computed on read
-    // from reviews (no FK denorm); the list is small, so one IN-query + JS
-    // grouping is cheap. (The per-severity FINDINGS breakdown is intentionally
-    // not surfaced on the list — findings live on the PR detail page.)
+    // A "Review all" fans out N agents within seconds; the score ring and the
+    // FINDINGS column both describe that latest batch. There's no batch id in the
+    // schema yet, so we approximate one with a time window around each PR's most
+    // recent review (swap for exact grouping if a review-session id is ever
+    // added). The COST column is deliberately NOT batch-scoped — see below.
+    const BATCH_WINDOW_MS = 120_000;
+
+    // Latest-review SCORE + per-severity FINDINGS per PR. Computed on read from
+    // reviews/findings (no FK denorm); the list is small, so a few IN-queries +
+    // JS grouping is cheap. Findings are scoped to the latest review batch so the
+    // chips stay consistent with the score ring and cost.
     const prIds = rows.map((r) => r.id);
     const latestReviewByPr = new Map<string, { score: number | null }>();
+    const findingsByPr = new Map<string, ReturnType<typeof findingRowToDto>[]>();
     if (prIds.length > 0) {
       const reviewRows = await container.db
-        .select({ prId: t.reviews.prId, score: t.reviews.score })
+        .select({
+          id: t.reviews.id,
+          prId: t.reviews.prId,
+          score: t.reviews.score,
+          createdAt: t.reviews.createdAt,
+        })
         .from(t.reviews)
         .where(and(inArray(t.reviews.prId, prIds), eq(t.reviews.kind, 'review')))
         .orderBy(desc(t.reviews.createdAt));
-      // Rows are newest-first → first seen per PR is the latest review.
+      // Rows newest-first → first seen per PR is the latest review (anchors the
+      // batch window's upper bound); later reviews within the window join it.
+      const batchEndByPr = new Map<string, number>();
+      const reviewIdToPr = new Map<string, string>();
+      const batchReviewIds: string[] = [];
       for (const rv of reviewRows) {
         if (!latestReviewByPr.has(rv.prId)) latestReviewByPr.set(rv.prId, { score: rv.score });
+        const ts = rv.createdAt ? rv.createdAt.getTime() : 0;
+        const end = batchEndByPr.get(rv.prId);
+        if (end === undefined) {
+          batchEndByPr.set(rv.prId, ts);
+          reviewIdToPr.set(rv.id, rv.prId);
+          batchReviewIds.push(rv.id);
+        } else if (ts >= end - BATCH_WINDOW_MS) {
+          reviewIdToPr.set(rv.id, rv.prId);
+          batchReviewIds.push(rv.id);
+        }
+      }
+
+      // One IN-query over the batch's findings, mapped to the wire DTO and
+      // grouped per PR. The list surfaces these directly: per-severity chips
+      // (counts derived client-side) + a hover popover of the findings.
+      if (batchReviewIds.length > 0) {
+        const findingRows = await container.db
+          .select()
+          .from(t.findings)
+          .where(inArray(t.findings.reviewId, batchReviewIds));
+        for (const row of findingRows) {
+          const prId = reviewIdToPr.get(row.reviewId);
+          if (!prId) continue;
+          let arr = findingsByPr.get(prId);
+          if (!arr) {
+            arr = [];
+            findingsByPr.set(prId, arr);
+          }
+          arr.push(findingRowToDto(row));
+        }
       }
     }
 
@@ -180,6 +228,7 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         updated_at: r.updatedAt?.toISOString() ?? null,
         score: review ? review.score : null,
         total_cost_usd: costByPr.get(r.id) ?? null,
+        findings: findingsByPr.get(r.id) ?? null,
       };
     });
   });

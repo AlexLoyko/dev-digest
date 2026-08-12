@@ -38,3 +38,12 @@ score is then recomputed from the survivors — the model's self-reported score 
 discarded entirely. A model that hallucinated all of its locations yields a completed
 run with zero findings and a clean verdict. Read the grounding summary (`N/M passed`)
 before concluding the model "found nothing".
+
+## 2026-06-14 — `ReviewOutcome` already carries cost; never recompute it
+
+`reviewPullRequest` returns `tokensIn` / `tokensOut` / `costUsd` on `ReviewOutcome`, so a
+consumer that wants cost READS it from the outcome — recomputing means extra model calls
+for a number you already have. Cost accumulates per chunk and collapses to `null` if ANY
+chunk lacked one (deliberately conservative). The OpenRouter provider prefers the real
+`usage.cost` and only falls back to `estimateCost`.
+`reviewer-core/src/review/run.ts:110,184` · `src/llm/openrouter.ts`.

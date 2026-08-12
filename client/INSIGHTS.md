@@ -34,3 +34,68 @@ course lessons L01–L08. A namespace existing does not mean the screen does —
 DB, or browser is needed. Don't add a test that expects a live server — the real
 full-stack journeys belong in [`../e2e`](../e2e/README.md), which runs against seeded
 data with no LLM in the loop.
+
+## 2026-06-18 — the AgentEditor tab list lives in two files
+
+Adding a tab means editing BOTH `TABS` in `_components/AgentEditor/constants.ts` (draws
+the tab bar) and `VALID_TABS` in `app/agents/[id]/page.tsx:15` (validates the `?tab=`
+param). Miss the second and the new tab silently redirects to `config` — no error, no
+warning.
+
+## 2026-06-18 — a wrong `Icon` name renders nothing, silently
+
+`Icon` is a proxy object, so `<Icon.BarChart2 />` is not a type error — it just draws
+nothing. `BarChart2` and `GripVertical` do NOT exist in the registry: use `BarChart`, and
+a unicode glyph (e.g. `⠿`) for a drag handle. Verify every name against
+`src/vendor/ui/icons.tsx` before using it. Contrast with the vendored `Toggle`, whose
+prop is `on`, not `checked` — that one typecheck does catch.
+
+## 2026-06-17 — a hover popover inside the PR list needs a portal, not `position:absolute`
+
+The PR-list `tableCard` sets `overflow: hidden` (`pulls/styles.ts`), which CLIPS an
+absolutely-positioned panel opening downward from the bottom rows — upper rows look
+fine, so the bug hides during casual testing. `FindingsHoverCard` therefore renders its
+panel through `createPortal(document.body)` with `position: fixed`, measuring the
+anchor's `getBoundingClientRect()` on open, recomputing on resize, closing on scroll.
+Because the panel then lives outside the anchor's subtree, BOTH the anchor and the portal
+panel carry the open/close handlers (shared 120 ms timer) so the pointer can cross the
+gap between them. `src/components/FindingsHoverCard/FindingsHoverCard.tsx`.
+
+## 2026-06-17 — finding deep-links thread through four components
+
+A findings popover navigates to `…/pulls/:number?tab=findings&finding=:id`. The PR-detail
+page reads `?finding`, forces the findings tab, and threads `focusFindingId` →
+`FindingsTab` (resolves finding→run, reuses the `targetRunId` open+scroll) →
+`ReviewRunAccordion` (opens if it owns the finding) → `FindingsPanel` (scrolls to
+`[data-finding-id]`, `defaultExpanded`). A finding's file:line link opens the PR's Files
+tab (`githubPrFilesUrl`), not the standalone blob.
+
+## 2026-06-14 — `COLUMN_KEYS` and `GRID` must stay length-aligned
+
+The PR-list table is driven by two parallel constants in
+`app/repos/[repoId]/pulls/constants.ts`: `COLUMN_KEYS` (header keys + order) and `GRID`
+(CSS grid-template tracks). Adding a column means adding to **both** and rendering a
+matching cell in `PRRow.tsx` — otherwise headers and cells misalign silently, with no
+error anywhere.
+
+## 2026-06-14 — where a shared component lives depends on what it is
+
+Cross-route app components live in `src/components/<name>/` with an `index.ts` barrel and
+are imported as `@/components/<name>` (e.g. `run-cost-badge`, `diff-viewer`). Vendored UI
+primitives (`Badge`, `CircularScore`) live in `src/vendor/ui` behind `@devdigest/ui` — a
+different home with different rules. Don't add an app component to the vendored kit.
+
+## 2026-06-14 — `formatCost` separates "no data" from "free"
+
+`formatCost` (`src/components/run-cost-badge/helpers.ts`) renders `null`/`undefined` as
+an em dash and a genuine `0` as `$0.00` — they are different facts and must not collapse.
+It widens precision for sub-cent values (~2 significant figures) and trims trailing zeros
+to a 2dp floor: `$0.06`, not `$0.060`; `$0.0013`, not `$0.00`. Reuse it for any per-run
+money display rather than formatting inline.
+
+## 2026-06-14 — a missing i18n key renders the key, not an error
+
+Only the `en` locale exists (`client/messages/en/`). A new string needs a key in the
+right namespace file (`prReview.json`, `runs.json`, …) read via `useTranslations("<ns>")`.
+Forget it and the UI displays the raw key path — nothing throws, and tests that assert on
+visible text will happily match it.

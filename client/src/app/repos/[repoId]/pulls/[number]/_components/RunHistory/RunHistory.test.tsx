@@ -73,6 +73,7 @@ describe("RunHistory — outcome badge", () => {
     renderRuns([run({ status: "running", score: null, blockers: null })]);
     expect(screen.getByText("running")).toBeInTheDocument();
   });
+
 });
 
 describe("RunHistory — usage line (L01 run cost)", () => {

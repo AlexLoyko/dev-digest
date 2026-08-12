@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Provider } from './knowledge.js';
+import { Finding } from './findings.js';
 
 /**
  * Platform / scaffolding DTOs owned by F1:
@@ -174,6 +175,11 @@ export const PrMeta = z.object({
   // agents, so any single run is only one agent's share (list endpoint only;
   // null/absent when nothing on this PR has ever been priced).
   total_cost_usd: z.number().nullish(),
+  // Findings of the latest review batch (list endpoint only; null/absent until
+  // reviewed). The list shows both per-severity chips (counts derived client-
+  // side) and a hover popover, so it carries the findings themselves rather than
+  // just counts. The repo's PR list is small/capped, so the payload stays modest.
+  findings: z.array(Finding).nullish(),
 });
 export type PrMeta = z.infer<typeof PrMeta>;
 

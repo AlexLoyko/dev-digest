@@ -89,3 +89,57 @@ for an actual reader/writer before assuming.
 
 Related: `.gitignore:3-5` carves out `agent-runner/dist/` for a package that doesn't
 exist in the starter — it arrives with the Export-to-CI lesson (L06).
+
+## 2026-06-18 — register `POST /skills/import` BEFORE `GET /skills/:id`
+
+Fastify matches in registration order, so with `/:id` first the literal segment `import`
+is parsed as the UUID param and the request dies with a 422 that says nothing about
+routing. Register the static path first (`modules/skills/routes.ts:60`). The same trap
+applies to any future literal sibling of a param route.
+
+## 2026-06-18 — skills reach the prompt without touching reviewer-core
+
+`run-executor.ts` fetches `agentsRepo.linkedSkills(agent.id)`, filters to
+`.skill.enabled`, and passes the bodies as `{ skills: skillBodies }` to
+`reviewPullRequest()`. `assemblePrompt` in reviewer-core renders `## Skills / rules`
+by itself when the array is non-empty — so wiring a new prompt slot from the server needs
+no engine change, only the resolved strings.
+
+## 2026-06-14 — `completeAgentRun`'s `values` shape is declared twice
+
+The shape lives in the repo function (`repository/run.repo.ts`) AND in the interface
+wrapper (`repository.ts:151`). Adding a field (e.g. `costUsd`) to only one fails
+typecheck — which is the good case; the bad case is reading one and editing the other.
+
+## 2026-06-14 — PR-list aggregates are computed on read, never denormalized
+
+`GET /repos/:id/pulls` derives every per-PR aggregate at request time with `inArray`
+queries plus JS grouping — nothing is written back onto `pull_requests`. The two
+aggregates use deliberately different windows: **cost** is `SUM(agent_runs.cost_usd)`
+over EVERY run the PR has ever had (a review fans out across N agents, so a single run is
+one agent's share), while **findings** are scoped to the latest review batch, approximated
+by a 120 s window over `reviews.createdAt` because the schema has no batch id. Don't
+"fix" the asymmetry by windowing cost too — the totals are the point. A pre-existing
+`rollupSeverities` in `modules/pulls/status.ts` (lowercase keys) was built for a
+counts-only variant and is currently unused. `modules/pulls/routes.ts`.
+
+## 2026-06-14 — the PR list ships whole `Finding[]`, not counts
+
+`PrMeta.findings` carries full `Finding` records mapped through
+`reviews/helpers.ts#findingRowToDto`, so the client derives severity chips AND renders the
+hover popover from one array — no second fetch, and chip↔popover can never disagree. This
+is affordable only because the PR list is small/capped; revisit if that stops being true.
+
+## 2026-06-14 — never hand-write migration SQL
+
+Edit `db/schema/*.ts`, then `pnpm db:generate` (drizzle-kit) emits `00NN_*.sql`; apply
+with `pnpm db:migrate`. Hand-writing the SQL desynchronizes `meta/*_snapshot.json`, which
+is what drizzle-kit diffs against to generate the NEXT migration — the damage surfaces
+one migration later, far from the cause.
+
+## 2026-06-14 — adding a required Zod field breaks the inline trace fixture
+
+`RunStats.cost_usd` and friends are asserted by an inline fixture in
+`server/test/contracts.test.ts:160` (a `RunTrace` parse). Adding a required contract field
+means updating that `stats: {…}` literal in the same change, or the suite fails somewhere
+that looks unrelated to your diff.

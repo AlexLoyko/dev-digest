@@ -7,17 +7,32 @@ import { useTranslations } from "next-intl";
 import { Icon, Avatar, Badge, CircularScore } from "@devdigest/ui";
 import type { PrMeta } from "@/lib/types";
 import { RunCostBadge } from "@/components/run-cost-badge";
+import { FindingsCountChips, countBySeverity, totalCount } from "@/components/FindingsCountChips";
+import { FindingsHoverCard } from "@/components/FindingsHoverCard";
+import { FindingPreview } from "@/components/FindingPreview";
 import { SIZE_COLOR, STATUS_META } from "../../constants";
 import { relativeTime, sizeOf } from "../../helpers";
 import { s } from "../../styles";
 
-export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
+export function PRRow({
+  pr,
+  repoId,
+  repoFullName,
+}: {
+  pr: PrMeta;
+  repoId: string;
+  /** owner/repo — lets the findings popover deep-link file:line to GitHub. */
+  repoFullName?: string | null;
+}) {
   const t = useTranslations("prReview");
   const router = useRouter();
   const [h, setH] = React.useState(false);
   const st = STATUS_META[pr.status] ?? STATUS_META.needs_review!;
   const { size, lines } = sizeOf(pr);
   const reviewed = pr.score != null; // null score ⇒ PR has never been reviewed
+  const findings = pr.findings ?? [];
+  const findingCounts = countBySeverity(findings);
+  const findingTotal = totalCount(findingCounts);
   return (
     <div
       onMouseEnter={() => setH(true)}
@@ -54,12 +69,36 @@ export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
           <span style={s.muted}>—</span>
         )}
       </div>
+      <div style={s.findingsCell}>
+        {findingTotal === 0 ? (
+          <span style={s.muted}>—</span>
+        ) : (
+          <FindingsHoverCard
+            align="left"
+            anchor={<FindingsCountChips counts={findingCounts} size={14} />}
+            header={t("findingsPopover.header", { count: findingTotal })}
+          >
+            {findings.map((f) => (
+              <FindingPreview
+                key={f.id}
+                f={f}
+                repoFullName={repoFullName}
+                headSha={pr.head_sha}
+                prNumber={pr.number}
+                onSelect={(id) =>
+                  router.push(`/repos/${repoId}/pulls/${pr.number}?tab=findings&finding=${id}`)
+                }
+              />
+            ))}
+          </FindingsHoverCard>
+        )}
+      </div>
       <div>
         <Badge dot color={st.c} bg="transparent">
           {t(`list.status.${st.labelKey}`)}
         </Badge>
       </div>
-      <div>
+      <div style={s.costCell}>
         <RunCostBadge costUsd={pr.total_cost_usd} emptyTitle={t("list.noCost")} />
       </div>
       <div style={s.updatedCell}>{relativeTime(pr.updated_at)}</div>
