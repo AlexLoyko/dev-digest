@@ -3,7 +3,14 @@
  * workflow's paths filter. They exist so the fixture reads like real code.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { deliver, deliverAll, summarise, type Subscriber, type Transport } from '../src/dispatcher.js';
+import {
+  deliver,
+  deliverAll,
+  deliverDigest,
+  summarise,
+  type Subscriber,
+  type Transport,
+} from '../src/dispatcher.js';
 
 const transport = (): Transport => ({
   sendEmail: vi.fn().mockResolvedValue(undefined),
@@ -18,7 +25,11 @@ const subscriber = (over: Partial<Subscriber> = {}): Subscriber => ({
   ...over,
 });
 
-const event = { kind: 'review.completed', subjectId: 'pr-1', payload: { prNumber: 42 } };
+const event = {
+  kind: 'review.completed',
+  subjectId: 'pr-1',
+  payload: { prNumber: 42, repoId: 'r-1' },
+};
 
 describe('deliver', () => {
   it('delivers to every enabled channel', async () => {
@@ -49,6 +60,15 @@ describe('deliver', () => {
     expect(results[0]!.ok).toBe(false);
     expect(results[0]!.error).toMatch(/slack user id/);
   });
+
+  it('reports the webhook channel as delivered', async () => {
+    const results = await deliver(
+      transport(),
+      subscriber({ channels: ['webhook'], webhookUrl: 'https://example.com/hook' }),
+      event,
+    );
+    expect(results[0]!.ok).toBe(true);
+  });
 });
 
 describe('deliverAll', () => {
@@ -56,6 +76,21 @@ describe('deliverAll', () => {
     const subs = Array.from({ length: 9 }, (_, i) => subscriber({ id: `s-${i}` }));
     const results = await deliverAll(transport(), subs, event);
     expect(new Set(results.map((r) => r.subscriberId)).size).toBe(9);
+  });
+
+  it('skips a muted subscriber', async () => {
+    const prefs = { load: vi.fn().mockResolvedValue({ muted: true }) };
+    const results = await deliverAll(transport(), [subscriber()], event, prefs);
+    expect(results).toEqual([]);
+  });
+});
+
+describe('deliverDigest', () => {
+  it('sends one message per subscriber regardless of event count', async () => {
+    const t = transport();
+    const results = await deliverDigest(t, [subscriber()], [event, event, event]);
+    expect(results).toHaveLength(1);
+    expect(t.sendEmail).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -66,6 +101,6 @@ describe('summarise', () => {
         { subscriberId: 's', channel: 'email', ok: true },
         { subscriberId: 's', channel: 'slack', ok: false, error: 'x' },
       ]),
-    ).toEqual({ attempted: 2, delivered: 1, failed: 1 });
+    ).toEqual({ attempted: 2, delivered: 1, failed: 1, recipients: [] });
   });
 });

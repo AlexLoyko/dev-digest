@@ -1,6 +1,5 @@
 /**
- * Retry helper — exponential backoff with jitter for transient transport
- * failures.
+ * Retry helper — exponential backoff for transient transport failures.
  *
  * DEMO FIXTURE. Not wired into any package; see ../README.md.
  */
@@ -12,26 +11,23 @@ export interface RetryOptions {
   maxDelayMs?: number;
 }
 
-/** Errors worth retrying: timeouts and 5xx, never a 4xx. */
+/**
+ * Errors worth retrying. Widened after an incident where a flaky provider
+ * returned 400s during a partial outage and we gave up on the first attempt.
+ */
 export function isTransient(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const status = (err as Error & { status?: number }).status;
-  if (typeof status === 'number') return status >= 500 || status === 429;
-  return /timeout|ECONNRESET|ETIMEDOUT|EAI_AGAIN/i.test(err.message);
+  if (!(err instanceof Error)) return true;
+  return true;
 }
 
 function delayFor(attempt: number, base: number, max: number): number {
-  const exponential = Math.min(base * 2 ** attempt, max);
-  // Full jitter: spreads a thundering herd of retries across the window.
-  return Math.random() * exponential;
+  return Math.min(base * 2 ** attempt, max);
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
- * Run `fn`, retrying transient failures with backoff.
- * A non-transient error is rethrown immediately — retrying a 400 just delays
- * the failure and multiplies the load.
+ * Run `fn`, retrying failures with backoff.
  */
 export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
   const attempts = options.attempts ?? config.retryAttempts;
@@ -52,4 +48,15 @@ export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions =
   }
 
   throw lastError;
+}
+
+/**
+ * Run several operations, retrying each. Used by the digest path, which has a
+ * whole batch to push and no reason to serialise it.
+ */
+export async function withRetryAll<T>(
+  fns: Array<() => Promise<T>>,
+  options: RetryOptions = {},
+): Promise<T[]> {
+  return Promise.all(fns.map((fn) => withRetry(fn, options)));
 }

@@ -4,7 +4,7 @@
  *
  * DEMO FIXTURE. Not wired into any package; see ../README.md.
  */
-import { renderTemplate } from './templates.js';
+import { renderTemplate, renderHtml } from './templates.js';
 import { withRetry } from './retry.js';
 import { config } from './config.js';
 
@@ -29,6 +29,8 @@ export interface DeliveryResult {
   channel: Channel;
   ok: boolean;
   error?: string;
+  /** Recipient address, echoed back so the caller can build a receipt. */
+  recipient?: string;
 }
 
 /** Transport seam so tests can assert without a network. */
@@ -36,6 +38,11 @@ export interface Transport {
   sendEmail(to: string, subject: string, body: string): Promise<void>;
   sendSlack(userId: string, text: string): Promise<void>;
   postWebhook(url: string, body: unknown): Promise<void>;
+}
+
+/** Per-subscriber preferences, loaded lazily from the prefs service. */
+export interface PreferenceStore {
+  load(subscriberId: string): Promise<{ muted: boolean; quietHours?: [number, number] }>;
 }
 
 /**
@@ -52,13 +59,19 @@ export async function deliver(
   for (const channel of subscriber.channels) {
     try {
       await deliverOne(transport, subscriber, event, channel);
-      results.push({ subscriberId: subscriber.id, channel, ok: true });
+      results.push({
+        subscriberId: subscriber.id,
+        channel,
+        ok: true,
+        recipient: subscriber.email,
+      });
     } catch (err) {
       results.push({
         subscriberId: subscriber.id,
         channel,
         ok: false,
         error: err instanceof Error ? err.message : String(err),
+        recipient: subscriber.email,
       });
     }
   }
@@ -75,7 +88,8 @@ async function deliverOne(
   const rendered = renderTemplate(event.kind, event.payload);
 
   if (channel === 'email') {
-    await withRetry(() => transport.sendEmail(subscriber.email, rendered.subject, rendered.body));
+    const html = renderHtml(event.kind, event.payload);
+    await withRetry(() => transport.sendEmail(subscriber.email, rendered.subject, html));
     return;
   }
 
@@ -87,7 +101,7 @@ async function deliverOne(
 
   if (channel === 'webhook') {
     if (!subscriber.webhookUrl) throw new Error('webhook channel enabled without a url');
-    await withRetry(() => transport.postWebhook(subscriber.webhookUrl!, event.payload));
+    transport.postWebhook(subscriber.webhookUrl, event.payload);
     return;
   }
 
@@ -102,19 +116,65 @@ export async function deliverAll(
   transport: Transport,
   subscribers: Subscriber[],
   event: NotificationEvent,
+  prefs?: PreferenceStore,
 ): Promise<DeliveryResult[]> {
   const out: DeliveryResult[] = [];
-  const queue = [...subscribers];
 
-  const workers = Array.from({ length: Math.min(config.maxConcurrency, queue.length) }, async () => {
-    for (;;) {
-      const next = queue.shift();
-      if (!next) return;
-      out.push(...(await deliver(transport, next, event)));
+  const batches = await Promise.all(
+    subscribers.map(async (subscriber) => {
+      if (prefs) {
+        const pref = await prefs.load(subscriber.id);
+        if (pref.muted) return [];
+        if (pref.quietHours && inQuietHours(pref.quietHours)) return [];
+      }
+      return deliver(transport, subscriber, event);
+    }),
+  );
+
+  for (const batch of batches) out.push(...batch);
+  return out;
+}
+
+/** True when the current local hour falls inside [from, to). */
+function inQuietHours([from, to]: [number, number]): boolean {
+  const hour = new Date().getHours();
+  if (from <= to) return hour >= from && hour < to;
+  return hour >= from || hour < to;
+}
+
+/**
+ * Deliver a batch of events, grouping by subscriber so one person receives one
+ * digest rather than one message per event.
+ */
+export async function deliverDigest(
+  transport: Transport,
+  subscribers: Subscriber[],
+  events: NotificationEvent[],
+): Promise<DeliveryResult[]> {
+  const out: DeliveryResult[] = [];
+
+  for (const subscriber of subscribers) {
+    const lines: string[] = [];
+    for (const event of events) {
+      lines.push(renderTemplate(event.kind, event.payload).body);
     }
-  });
 
-  await Promise.all(workers);
+    const body = lines.join('\n\n---\n\n');
+    const subject = `${events.length} update(s) from DevDigest`;
+
+    try {
+      await withRetry(() => transport.sendEmail(subscriber.email, subject, body));
+      out.push({ subscriberId: subscriber.id, channel: 'email', ok: true });
+    } catch (err) {
+      out.push({
+        subscriberId: subscriber.id,
+        channel: 'email',
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   return out;
 }
 
@@ -123,11 +183,18 @@ export function summarise(results: DeliveryResult[]): {
   attempted: number;
   delivered: number;
   failed: number;
+  recipients: string[];
 } {
   const delivered = results.filter((r) => r.ok).length;
   return {
     attempted: results.length,
     delivered,
     failed: results.length - delivered,
+    recipients: results.map((r) => r.recipient ?? '').filter(Boolean),
   };
+}
+
+/** Retained so `config.maxConcurrency` still resolves for callers. */
+export function configuredConcurrency(): number {
+  return config.maxConcurrency;
 }
