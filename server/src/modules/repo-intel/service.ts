@@ -631,6 +631,12 @@ export class RepoIntelService implements RepoIntel {
     return this.getTopFilesByRank(repoId, n);
   }
 
+  /** Size of the ranked pool the top-N is drawn from. 0 when degraded. */
+  async countRankedFiles(repoId: string): Promise<number> {
+    if (!this.container.config.repoIntelEnabled) return 0;
+    return this.repo.countRankedPaths(repoId);
+  }
+
   /**
    * Top-N file paths by rank DESC, dropping tests/configs/migrations and any
    * caller-supplied `exclude` substrings. Over-fetches by 10× before filtering

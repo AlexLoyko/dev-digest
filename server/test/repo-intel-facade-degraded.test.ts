@@ -96,6 +96,13 @@ describe('RepoIntel facade — degraded contract (flag off)', () => {
     await expect(svc.getCriticalPaths('r1')).resolves.toEqual([]);
   });
 
+  it('countRankedFiles → 0 (scalar analogue of the [] rule; no DB touch)', async () => {
+    // `repo` has no countRankedPaths stub — reaching the DB at all would throw,
+    // so this also proves the flag short-circuits before the query.
+    const svc = buildDegradedService({ flag: false });
+    await expect(svc.countRankedFiles('r1')).resolves.toBe(0);
+  });
+
   it('indexRepo / refreshIndex → degraded T1 skeleton (never throws)', async () => {
     const svc = buildDegradedService({ flag: false });
     const a = await svc.indexRepo('r1');

@@ -458,6 +458,20 @@ export class RepoIntelRepository {
       .limit(limit);
   }
 
+  /**
+   * How many ranked files exist for a repo — the FULL candidate pool that
+   * `getRankedPaths` orders and slices. Distinct from
+   * `repo_index_state.files_indexed`, which is a cumulative parse counter that
+   * incremental refreshes keep adding to (see `pipeline/incremental.ts`).
+   */
+  async countRankedPaths(repoId: string): Promise<number> {
+    const [row] = await this.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(t.fileRank)
+      .where(eq(t.fileRank.repoId, repoId));
+    return row?.n ?? 0;
+  }
+
   /** Repo-map candidates: symbols with a signature, joined to rank, ordered. */
   async getRepoMapCandidates(repoId: string): Promise<RepoMapCandidateRow[]> {
     return this.db
