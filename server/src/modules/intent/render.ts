@@ -1,4 +1,4 @@
-import type { Intent } from '@devdigest/shared';
+import type { PrIntent } from '@devdigest/shared';
 
 /**
  * Build the INNER payload string for reviewer-core's `## Derived intent
@@ -13,7 +13,7 @@ import type { Intent } from '@devdigest/shared';
  * That disclosure mitigates circular anchoring (plan Risk R9): the reviewer
  * must not mistake our own reading of the code for a statement of intent.
  */
-export function renderIntentBlock(intent: Intent): string {
+export function renderIntentBlock(intent: PrIntent): string {
   const resolved = intent.sources.filter((s) => s.resolved);
   const missing = intent.sources.filter((s) => !s.resolved);
 

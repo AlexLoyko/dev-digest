@@ -1,6 +1,6 @@
 import type { Db } from '../../db/client.js';
 import * as t from '../../db/schema.js';
-import type { Finding, Intent, PrIntentRecord, RunSummary, RunTrace } from '@devdigest/shared';
+import type { Finding, PrIntent, PrIntentRecord, RunSummary, RunTrace } from '@devdigest/shared';
 
 /**
  * A2 — review data-access. The ONLY layer touching the DB for the review
@@ -127,7 +127,7 @@ export class ReviewRepository {
 
   // ---- intent -------------------------------------------------------------
 
-  upsertIntent(prId: string, intent: Intent, meta: pullRepo.IntentMeta): Promise<void> {
+  upsertIntent(prId: string, intent: PrIntent, meta: pullRepo.IntentMeta): Promise<void> {
     return pullRepo.upsertIntent(this.db, prId, intent, meta);
   }
 

@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import type { Db } from '../../../db/client.js';
 import * as t from '../../../db/schema.js';
-import type { Intent, IntentSource, PrIntentRecord } from '@devdigest/shared';
+import type { PrIntent, IntentSource, PrIntentRecord } from '@devdigest/shared';
 import type { PullRow } from '../../../db/rows.js';
 
 // ---- PR lookup (workspace-scoped) -----------------------------------------
@@ -57,7 +57,7 @@ export interface IntentMeta {
 export async function upsertIntent(
   db: Db,
   prId: string,
-  intent: Intent,
+  intent: PrIntent,
   meta: IntentMeta,
 ): Promise<void> {
   // The `sources` literal is annotated because a jsonb column type-checks against
@@ -82,7 +82,7 @@ export async function upsertIntent(
     .onConflictDoUpdate({ target: t.prIntent.prId, set: values });
 }
 
-function toIntent(row: typeof t.prIntent.$inferSelect): Intent {
+function toIntent(row: typeof t.prIntent.$inferSelect): PrIntent {
   return {
     intent: row.intent,
     in_scope: row.inScope,

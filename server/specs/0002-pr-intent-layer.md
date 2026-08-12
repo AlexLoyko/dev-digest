@@ -221,15 +221,24 @@ named as residual risk, not solved here (see Out of scope). What this layer does
 **@devdigest/shared — apply to BOTH `server/src/vendor/shared/` and
 `client/src/vendor/shared/`:**
 
-- `contracts/brief.ts` — `IntentType`, `IntentConfidence`,
-  `IntentSourceKind` (`'pr_title' | 'pr_body' | 'doc' | 'diff'`),
-  `IntentSource`, and `Intent` gains three **required** fields: `type`,
-  `confidence`, `sources: IntentSource[]`. No separate `IntentClassification` type —
-  the fields live directly on `Intent`; there is exactly one shape, one producer
-  (`IntentService`), one persister (`upsertIntent`/`getIntentRecord`).
-- `contracts/review-api.ts` — `PrIntentRecord = Intent.extend({ pr_id, head_sha,
-  provider, model, classified_at })`, the last four nullable
-  (`review-api.ts:65-71`).
+- `contracts/brief.ts` — **unchanged.** `Intent` stays the bare
+  `intent`/`in_scope`/`out_of_scope` triple it has always been. An earlier revision of
+  this spec put the evidence fields directly on `Intent`; that was reverted, because
+  making them required is a breaking change to a published contract — every existing
+  caller that constructs or parses a bare `Intent` would start throwing, and `Intent`
+  is a `PrBrief` building block that has no need for the intent layer's evidence trail.
+- `contracts/review-api.ts` — everything the Intent Layer adds lives here, next to
+  `PrIntentRecord`, because it is a persisted/transport concern:
+  `IntentType`, `IntentConfidence`, `IntentSourceKind`
+  (`'pr_title' | 'pr_body' | 'doc' | 'diff'`), `IntentSource`, then
+  `PrIntent = Intent.extend({ type, confidence, sources })` and
+  `PrIntentRecord = PrIntent.extend({ pr_id, head_sha, provider, model,
+  classified_at })`, the last four nullable. `PrIntent` — not `Intent` — is the one
+  shape with one producer (`IntentService`) and one persister
+  (`upsertIntent`/`getIntentRecord`). Naming mirrors the existing `PrIntentRecord` and
+  the `pr_intent` table rather than introducing a new concept word. The shared barrel
+  is `export *` over every contract file, so the import site is `@devdigest/shared`
+  either way — moving these symbols changed no consumer's imports.
 - `contracts/trace.ts` — `PromptAssembly.intent: z.string().nullish()`.
 - `contracts/platform.ts` — `review_intent` in `FEATURE_MODELS`, defaulting to
   `provider: 'openrouter', model: 'deepseek/deepseek-v4-flash'` (`platform.ts:52-59`),
@@ -363,8 +372,8 @@ table (doc→`high`, ticket-only or long-body→`medium`, title-only→`low`); t
 clamp; path-traversal and foreign-repo blob URLs producing **no** `readFile` call;
 `MockGitClient` returning `''` yielding `resolved: false`; a classifier throw omitting
 the slot without failing the run; one classification shared across N agent jobs;
-`contracts.test.ts`'s `Intent`/`PrIntentRecord` fixtures parsing (already added,
-confirmed at `server/test/contracts.test.ts:68-83`).
+`contracts.test.ts`'s `PrIntent`/`PrIntentRecord` fixtures parsing — including that a
+bare `Intent` triple still parses, so the contract stayed backward-compatible.
 
 **Code digest:** tier 1 always present; tier 2 present only for a blank-body,
 no-ticket, no-doc PR and absent when a substantive body exists; the char budget split

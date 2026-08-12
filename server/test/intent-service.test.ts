@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { Intent, PrIntentRecord, Review } from '@devdigest/shared';
+import type { PrIntent, PrIntentRecord, Review } from '@devdigest/shared';
 import { IntentService } from '../src/modules/intent/service.js';
 import { ReviewRunExecutor } from '../src/modules/reviews/run-executor.js';
 import { RunBus } from '../src/platform/sse.js';
@@ -99,7 +99,7 @@ function makeFakeReviewRepo(initial?: PrIntentRecord) {
     upsertIntent: vi.fn(
       async (
         prId: string,
-        intent: Intent,
+        intent: PrIntent,
         meta: { headSha: string | null; provider: string | null; model: string | null },
       ) => {
         stored = {

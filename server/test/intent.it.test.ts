@@ -8,7 +8,7 @@ import { seed } from '../src/db/seed.js';
 import { MockLLMProvider, MockEmbedder, MockGitClient } from '../src/adapters/mocks.js';
 import { ReviewRepository } from '../src/modules/reviews/repository.js';
 import * as t from '../src/db/schema.js';
-import type { Intent, Review } from '@devdigest/shared';
+import type { PrIntent, Review } from '@devdigest/shared';
 
 /**
  * L03 intent layer — Docker-backed (Testcontainers Postgres). NOT run by the
@@ -129,7 +129,7 @@ d('L03 intent layer (Testcontainers pg)', () => {
   it('the seven new pr_intent columns round-trip through upsertIntent/getIntentRecord', async () => {
     const repo = new ReviewRepository(pg.handle.db);
     const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
-    const intent: Intent = {
+    const intent: PrIntent = {
       intent: 'Add rate limiting to public endpoints.',
       in_scope: ['middleware on /api/public/*'],
       out_of_scope: ['authentication changes'],
@@ -165,10 +165,10 @@ d('L03 intent layer (Testcontainers pg)', () => {
     const repo = new ReviewRepository(pg.handle.db);
     const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
 
-    const v1: Intent = { intent: 'v1', in_scope: [], out_of_scope: [], type: 'chore', confidence: 'low', sources: [] };
+    const v1: PrIntent = { intent: 'v1', in_scope: [], out_of_scope: [], type: 'chore', confidence: 'low', sources: [] };
     await repo.upsertIntent(pr.id, v1, { headSha: 'sha-1', provider: 'openai', model: 'gpt-4.1' });
 
-    const v2: Intent = {
+    const v2: PrIntent = {
       intent: 'v2',
       in_scope: ['a'],
       out_of_scope: [],
@@ -193,7 +193,7 @@ d('L03 intent layer (Testcontainers pg)', () => {
     const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId, 'sha-current');
     // Simulate a pre-L03 row (head_sha was added nullable so old rows don't
     // look like a valid cache for the wrong SHA).
-    const legacy: Intent = { intent: 'legacy', in_scope: [], out_of_scope: [], type: 'chore', confidence: 'low', sources: [] };
+    const legacy: PrIntent = { intent: 'legacy', in_scope: [], out_of_scope: [], type: 'chore', confidence: 'low', sources: [] };
     await repo.upsertIntent(pr.id, legacy, { headSha: null, provider: null, model: null });
 
     const llm = new MockLLMProvider('openai', {

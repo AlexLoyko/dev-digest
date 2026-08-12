@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { Intent } from '@devdigest/shared';
+import type { PrIntent } from '@devdigest/shared';
 import { renderIntentBlock } from '../src/modules/intent/render.js';
 
 /**
@@ -14,7 +14,7 @@ import { renderIntentBlock } from '../src/modules/intent/render.js';
  *    must not be allowed to narrow the review.
  */
 
-const base: Intent = {
+const base: PrIntent = {
   intent: 'Add rate limiting to public endpoints.',
   in_scope: ['middleware on /api/public/*'],
   out_of_scope: ['authentication changes'],

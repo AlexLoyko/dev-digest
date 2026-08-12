@@ -159,8 +159,9 @@ in sync with `contracts/platform.ts` if the default ever changes.
 `api.get`. Re-exported through `src/lib/hooks/index.ts`.
 
 **@devdigest/shared types consumed** (`client/src/vendor/shared/` — the client's
-independent copy): `PrIntentRecord`, `Intent`, `IntentConfidence`, `IntentSource`,
-`IntentSourceKind` from `contracts/brief.ts` / `contracts/review-api.ts`;
+independent copy): `PrIntentRecord`, `PrIntent`, `IntentType`, `IntentConfidence`,
+`IntentSource`, `IntentSourceKind` from `contracts/review-api.ts` — the bare `Intent`
+triple in `contracts/brief.ts` is untouched by this feature;
 `PromptAssembly.intent` from `contracts/trace.ts` (consumed by `TraceBody`).
 
 **New `messages/en/*.json` keys** — all under `prReview.intent` in

@@ -1,4 +1,4 @@
-import type { Intent, PrIntentRecord, RepoRef, UnifiedDiff } from '@devdigest/shared';
+import type { PrIntent, PrIntentRecord, RepoRef, UnifiedDiff } from '@devdigest/shared';
 import type { Container } from '../../platform/container.js';
 import type { PullRow, RepoRow } from '../../db/rows.js';
 import { defaultFeatureModel, getFeatureModelOverride } from '../settings/feature-models.js';
@@ -172,9 +172,9 @@ export class IntentService {
 
       const { confidence, clamped } = computeConfidence(sources, res.data.sources_used, bodyChars);
 
-      // The `sources` literal is annotated via `Intent` so a jsonb-destined
+      // The `sources` literal is annotated via `PrIntent` so a jsonb-destined
       // shape is checked at the write site (server/INSIGHTS.md).
-      const intent: Intent = {
+      const intent: PrIntent = {
         intent: res.data.intent,
         in_scope: res.data.in_scope,
         out_of_scope: res.data.out_of_scope,

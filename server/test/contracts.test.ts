@@ -3,6 +3,8 @@ import {
   Review,
   Finding,
   Intent,
+  PrIntent,
+  PrIntentRecord,
   BlastRadius,
   Risks,
   PrHistory,
@@ -67,20 +69,8 @@ describe('AI contracts parse fixtures', () => {
 
   it('Intent / BlastRadius / Risks / PrHistory', () => {
     expect(() =>
-      Intent.parse({
-        intent: 'x',
-        in_scope: ['a'],
-        out_of_scope: ['b'],
-        type: 'feature',
-        confidence: 'low',
-        sources: [{ kind: 'pr_title', ref: 'pr#1', resolved: true }],
-      }),
-    ).not.toThrow();
-    // type/confidence/sources are required: an intent must always declare how well
-    // evidenced it is. A bare triple is now invalid by design.
-    expect(() =>
       Intent.parse({ intent: 'x', in_scope: ['a'], out_of_scope: ['b'] }),
-    ).toThrow();
+    ).not.toThrow();
     expect(() =>
       BlastRadius.parse({
         changed_symbols: [{ name: 'rateLimit', file: 'a.ts', kind: 'function' }],
@@ -112,6 +102,52 @@ describe('AI contracts parse fixtures', () => {
             notes: 'n',
           },
         ],
+      }),
+    ).not.toThrow();
+  });
+
+  it('PrIntent / PrIntentRecord (L03 intent layer)', () => {
+    // The evidence trail lives here, not on `Intent` — a bare triple stays a valid
+    // `Intent` (asserted above), while `PrIntent` additionally requires the classifier
+    // to declare what it read and how well evidenced the reading is.
+    const classification = {
+      intent: 'Add rate limiting to the public API',
+      in_scope: ['Rate-limit plugin (src/plugins/rate-limit.ts)'],
+      out_of_scope: ['Auth changes'],
+      type: 'feature',
+      confidence: 'high',
+      sources: [
+        { kind: 'pr_title', ref: 'Add rate limiting', resolved: true },
+        { kind: 'doc', ref: 'docs/plans/0003-x.md', resolved: true },
+        { kind: 'pr_body', ref: 'body', resolved: false },
+      ],
+    };
+    expect(() => PrIntent.parse(classification)).not.toThrow();
+    // type/confidence/sources are required on the classification: an intent that
+    // cannot say how well evidenced it is defeats the point of the layer.
+    expect(() =>
+      PrIntent.parse({ intent: 'x', in_scope: ['a'], out_of_scope: ['b'] }),
+    ).toThrow();
+
+    // The persisted record adds the pr_id it scopes plus provenance. All four
+    // provenance fields are nullable — rows predating L03 carry none of them.
+    const rec = PrIntentRecord.parse({
+      ...classification,
+      pr_id: 'pr_1',
+      head_sha: 'abc123',
+      provider: 'openrouter',
+      model: 'deepseek/deepseek-v4-flash',
+      classified_at: '2026-08-12T00:00:00.000Z',
+    });
+    expect(rec.sources.filter((s) => s.resolved)).toHaveLength(2);
+    expect(() =>
+      PrIntentRecord.parse({
+        ...classification,
+        pr_id: 'pr_1',
+        head_sha: null,
+        provider: null,
+        model: null,
+        classified_at: null,
       }),
     ).not.toThrow();
   });
