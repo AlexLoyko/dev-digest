@@ -32,10 +32,46 @@ done
 
 log()  { printf '\033[1;36m▸ %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m! %s\033[0m\n' "$*"; }
+err()  { printf '\033[1;31m✗ %s\033[0m\n' "$*" >&2; }
+
+# All descendants of $1, deepest last. `pnpm dev` spawns a chain
+# (subshell → pnpm → tsx watch → node), and killing only the subshell PID
+# orphans everything below it — those orphans keep holding :3000/:3001 and make
+# the *next* run fail with EADDRINUSE. Enumerate before killing: once the parent
+# dies its children are reparented and `pgrep -P` can no longer find them.
+descendants() {
+  local pid="$1" child
+  for child in $(pgrep -P "$pid" 2>/dev/null || true); do
+    printf '%s\n' "$child"
+    descendants "$child"
+  done
+}
+
+# Refuse to start on an occupied port, naming the culprit so it can be killed by
+# hand. Never kills anything itself — an unrelated process may legitimately own
+# the port.
+require_free_port() {
+  local port="$1" label="$2" pid
+  command -v lsof >/dev/null || return 0   # no lsof: skip the check rather than guess
+  pid="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1 || true)"
+  [ -n "$pid" ] || return 0
+  err "port $port ($label) is already in use:"
+  ps -o pid,etime,command -p "$pid" 2>/dev/null | tail -1 | sed 's/^/    /' >&2
+  printf '\n    This is usually a dev server left over from an earlier run.\n' >&2
+  printf '    Stop it, then re-run:\n\n        kill %s\n\n' "$pid" >&2
+  exit 1
+}
 
 # --- prerequisites -----------------------------------------------------------
 command -v docker >/dev/null || { echo "docker not found"; exit 1; }
 command -v pnpm   >/dev/null || { echo "pnpm not found (npm i -g pnpm)"; exit 1; }
+
+# Fail fast: check this BEFORE docker/migrate/seed, so an occupied port is
+# reported in a second rather than after a full bootstrap.
+if [ "$DB_ONLY" -eq 0 ]; then
+  require_free_port 3001 "API"
+  [ "$RUN_CLIENT" -eq 1 ] && require_free_port 3000 "web"
+fi
 
 # --- env files ---------------------------------------------------------------
 for dir in server client; do
@@ -93,8 +129,16 @@ fi
 # --- dev servers -------------------------------------------------------------
 SERVER_PID=""
 cleanup() {
+  [ -n "$SERVER_PID" ] || return 0
   log "shutting down dev servers (Postgres stays up; stop it with: docker compose down)"
-  [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null || true
+  # Kill the whole tree, not just the subshell — see descendants() above.
+  local pids
+  pids="$(descendants "$SERVER_PID"; printf '%s\n' "$SERVER_PID")"
+  # shellcheck disable=SC2086
+  kill $pids 2>/dev/null || true
+  sleep 1
+  # shellcheck disable=SC2086
+  kill -9 $pids 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 

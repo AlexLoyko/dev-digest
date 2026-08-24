@@ -1,0 +1,53 @@
+# mcp-server suite — the stdio MCP server that fronts the DevDigest API for
+# MCP clients (@devdigest/mcp-server). Tests are hermetic units: the DevDigest
+# API is stubbed, no Docker, no Postgres. Uses npm (package-lock.json).
+#
+# reviewer-core/src/prompt.ts is in the path filter because mcp-server imports
+# wrapUntrusted() from it directly. server/src/vendor/shared/** is in the
+# filter because mcp-server consumes @devdigest/shared contract types at
+# type-check time — same reasoning reviewer-core.yml documents for its own
+# server/src/vendor/shared/** entry.
+name: mcp-server
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mcp-server/**'
+      - 'reviewer-core/src/prompt.ts'
+      - 'server/src/vendor/shared/**'
+      - '.github/workflows/mcp-server.yml'
+  pull_request:
+    paths:
+      - 'mcp-server/**'
+      - 'reviewer-core/src/prompt.ts'
+      - 'server/src/vendor/shared/**'
+      - '.github/workflows/mcp-server.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp-server-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcp-server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mcp-server/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm test

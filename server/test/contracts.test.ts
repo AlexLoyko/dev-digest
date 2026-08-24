@@ -4,6 +4,7 @@ import {
   Finding,
   Intent,
   BlastRadius,
+  BlastRadiusView,
   Risks,
   PrHistory,
   SmartDiff,
@@ -166,6 +167,50 @@ describe('AI contracts parse fixtures', () => {
       log: [{ t: '00.00', kind: 'info', msg: 'started' }],
     });
     expect(trace.tool_calls).toHaveLength(1);
+  });
+});
+
+describe('blast contracts', () => {
+  it('BlastRadiusView parses a full-state fixture', () => {
+    expect(() =>
+      BlastRadiusView.parse({
+        pr_id: 'pr1',
+        repo_full_name: 'acme/payments-api',
+        indexed_sha: 'abc123',
+        head_sha: 'def456',
+        state: 'full',
+        reason: 'ok',
+        explanation: '',
+        symbols: [
+          {
+            name: 'rateLimit',
+            file: 'src/rate-limit.ts',
+            kind: 'function',
+            callers: [
+              { file: 'src/api/router.ts', symbol: 'handleRequest', line: 42, rank: 0.83 },
+            ],
+            caller_total: 25,
+            callers_truncated: true,
+            endpoints: [{ label: 'GET /api/x', file: 'src/api/router.ts', depth: 1 }],
+            crons: [],
+            endpoint_total: 1,
+            cron_total: 0,
+            facts_truncated: false,
+          },
+        ],
+        counts: { symbols: 1, callers: 1, endpoints: 1, crons: 0 },
+        prior_prs: [
+          {
+            number: 401,
+            title: 'Tune rate limit window',
+            author: 'marisa.koch',
+            status: 'merged',
+            updated_at: '2026-03-18T00:00:00Z',
+            files_overlap: ['src/rate-limit.ts'],
+          },
+        ],
+      }),
+    ).not.toThrow();
   });
 });
 

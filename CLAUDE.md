@@ -22,6 +22,7 @@ Prerequisites: Node ≥22, pnpm ≥10, Docker.
 | `@devdigest/web` | `client/` | 3000 |
 | `@devdigest/reviewer-core` | `reviewer-core/` | — |
 | `@devdigest/e2e` | `e2e/` | — |
+| `@devdigest/mcp-server` | `mcp-server/` | — (stdio) |
 | `@devdigest/shared` | `server/src/vendor/shared/` | — (alias only) |
 
 Not a monorepo. Cross-package code sharing is done via TypeScript path aliases — no `workspace:*`, no published packages.
@@ -44,13 +45,17 @@ cd client        && pnpm test                                        # vitest + 
 cd server        && pnpm exec vitest run --exclude '**/*.it.test.ts' # unit (hermetic)
 cd server        && pnpm exec vitest run .it.test                    # integration (real Postgres)
 cd reviewer-core && npm test                                         # hermetic, LLM stubbed
+cd mcp-server    && npm test                                         # hermetic, stubbed HTTP
 ./scripts/e2e.sh                                                     # hermetic browser e2e
 
 # Typecheck
 cd server        && pnpm typecheck
 cd client        && pnpm typecheck
 cd reviewer-core && npm run typecheck
+cd mcp-server    && npm run typecheck
 ```
+
+`e2e/`, `reviewer-core/`, and `mcp-server/` use **npm**, not pnpm.
 
 ## Key Constraints
 
@@ -58,6 +63,7 @@ cd reviewer-core && npm run typecheck
 - **Migrations** — explicit only. Never auto-run on boot. Always `pnpm db:generate` then `pnpm db:migrate`.
 - **reviewer-core** — never emits JS. `npm run build` = `tsc --noEmit`. Always consumed as raw TypeScript source.
 - **Test split** — `*.it.test.ts` suffix = integration test (real Postgres). Everything else = hermetic unit.
+- **MCP server** — HTTP client of the local API only; never imports `Container`, never opens its own DB connection (the run reaper and in-memory `runBus` assume a single API instance).
 
 ## Read When
 
@@ -67,5 +73,6 @@ cd reviewer-core && npm run typecheck
 - **Working on any server module** → read `server/CLAUDE.md`
 - **Working on the UI** → read `client/CLAUDE.md`
 - **Writing or debugging e2e flows** → read `e2e/docs/flows.md`
+- **Adding or changing an MCP tool** → read `mcp-server/docs/tools.md`
 - **Hit unexpected behavior** → check `<package>/insights/gotchas.md`
 - **Changing DB schema** → read `server/docs/architecture.md` (Drizzle section)

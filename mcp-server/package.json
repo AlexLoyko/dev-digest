@@ -1,0 +1,23 @@
+{
+  "name": "@devdigest/mcp-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-only MCP server exposing DevDigest's review capability to Claude Code over stdio. Thin HTTP-client presentation adapter over the local REST API — no DB connection, no Container import, no duplicated service logic.",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "start": "tsx src/index.ts",
+    "inspect": "npx -y @modelcontextprotocol/inspector tsx src/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

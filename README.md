@@ -61,7 +61,8 @@ Each package has its own README with deeper diagrams:
 [`client`](client/README.md) (UI route map) ·
 [`server`](server/README.md) (API map) ·
 [`reviewer-core`](reviewer-core/README.md) (review pipeline) ·
-[`e2e`](e2e/README.md).
+[`e2e`](e2e/README.md) ·
+[`mcp-server`](mcp-server/README.md) (MCP tools).
 
 ## What works on day 1
 
@@ -87,6 +88,15 @@ These are intentionally **not** in the starter — each lesson adds one back:
 | L06 | Eval pipeline · Secret/Phantom gates · Plan Verifier · Export to CI |
 | L07 | Multi-agent review · Run Trace / Live Log · Persistent memory · per-agent stats |
 | L08 | Plugin export/import · Agent performance dashboard · weekly digest |
+
+### `devdigest-mcp` (L04)
+
+A local-only MCP server (`mcp-server/`, package `@devdigest/mcp-server`) that exposes DevDigest's
+review capability to Claude Code over **stdio**. It ships five tools — `devdigest_list_agents`,
+`devdigest_run_agent_on_pr`, `devdigest_get_findings`, `devdigest_get_conventions`, and
+`devdigest_get_blast_radius` — and is a thin HTTP client of the local API on `:3001`; it needs
+`./scripts/dev.sh` running to do anything. See
+[`mcp-server/README.md`](mcp-server/README.md) for setup, the tool contracts, and manual QA steps.
 
 ## Prerequisites
 

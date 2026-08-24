@@ -11,5 +11,10 @@
         ]
       }
     ]
+  },
+  "env": {
+    "ENABLE_TOOL_SEARCH": "false",
+    "GITHUB_TOOLSETS": "pull_requests,repos",
+    "GITHUB_READ_ONLY": "1"
   }
 }

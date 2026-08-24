@@ -13,6 +13,10 @@ See also: `insights/gotchas.md` for known quirks at project start.
 
 2026-06-18 — Unit-testing a drizzle repo function with two sequential queries: mock `db.select()` with a call counter; each call returns a fresh chain where `.orderBy()` (first query) or `.groupBy()` (second query) resolves with the appropriate fixture data. All intermediate chain methods (`from`, `leftJoin`, `innerJoin`, `where`) return `this`. Pattern validated for `listRunsForPull`. ref: server/src/modules/reviews/repository/run.repo.severity.test.ts:53
 
+2026-08-24 — Postgres `DESC` sorts NULLs FIRST by default (the opposite of `ASC`, which sorts NULLs LAST). For "most-recently-updated first, unset-updated-at last" ordering (e.g. `blast/repository.ts` `priorPrsTouching`), Drizzle has no `.orderBy(desc(col).nullsLast())` sugar that composes with `sql` template columns cleanly — use a raw `sql` orderBy: `.orderBy(sql\`${t.pullRequests.updatedAt} DESC NULLS LAST\`)`. Forgetting `NULLS LAST` silently reorders every never-updated row to the top. ref: server/src/modules/blast/repository.ts:1
+
+2026-08-24 — Aggregating "which files did this PR touch that overlap another PR" via `array_agg(distinct ...)` works fine with Drizzle's `sql<string[]>\`array_agg(distinct ${t.prFiles.path})\`` in the select list alongside a `.groupBy()` on every non-aggregated selected column (Postgres requires every non-aggregate column in GROUP BY, not just the PK, when the table has no functional-dependency FK relationship declared to Drizzle). ref: server/src/modules/blast/repository.ts:1
+
 ## What Doesn't Work
 
 2026-06-22 — Refactoring an inline SSRF guard into a container-wired adapter: the old inline helper (`safeFetchSkillUrl` in skills/routes.ts) had identical logic but was unreachable from other modules. Lifting it to `WebFetchAdapter` + `WebFetchClient` port lets the intent module reuse it via `container.webFetch.fetch()` without re-implementing SSRF guards. The route refactor must remove the unused import (`ValidationError`) or typecheck warns. ref: server/src/modules/skills/routes.ts:1
@@ -22,6 +26,10 @@ See also: `insights/gotchas.md` for known quirks at project start.
 2026-06-17 — `selectDistinctOn([agentRuns.prId])` for cost silently returns null when the most recent run errored (`cost_usd = null`). DISTINCT ON picks the newest row regardless of whether the value is null — so a trailing error run zeros out the entire COST column. Fix: use `sql\`sum(${t.agentRuns.costUsd})\`` with `.groupBy(t.agentRuns.prId)` — SQL SUM skips nulls, so error runs don't affect the total. ref: server/src/modules/pulls/routes.ts:122
 
 ## Codebase Patterns
+
+2026-08-24 — When a new module must NOT trust an existing facade method's sub-result (here: `RepoIntelService.getBlastRadius()`'s `.callers`, which has two known bugs — a flat cross-symbol slice instead of per-symbol, and no same-file-caller exclusion — see `repo-intel/service.ts:386` and `repo-intel/repository.ts:503`), the fix pattern is: still call the facade for the parts that ARE correct (here, `.changedSymbols` — already deduped and qualified-name-stripped), but re-query the underlying tables directly from the new module's OWN `repository.ts` for the parts that aren't trustworthy, rather than patching the existing module (which was explicitly out of scope). This keeps the two bugs isolated instead of propagating a workaround into `repo-intel/`. ref: server/src/modules/blast/service.ts:1
+
+2026-08-24 — `enclosingSymbol`/BFS-over-import-graph/per-symbol-caller-capping are exactly the kind of logic that should be pure functions taking closures for I/O (`importersOf: (files) => Promise<Edge[]>`, `factsFor: (files) => Promise<Facts[]>`) rather than being embedded directly in the service — this made `reverseBfs`/`attributeFacts`/`groupAndCapCallers` unit-testable with in-memory fake edge maps (including a cycle-termination test) with zero DB/mock-container ceremony. ref: server/src/modules/blast/helpers.ts:1
 
 2026-06-22 — The minimal `Logger` type (`{ info, warn, error, debug }`) for new server modules is NOT exported from `@devdigest/shared` — it lives in `server/src/modules/reviews/run-executor.ts` as `export type Logger`. Import it with `import type { Logger } from '../reviews/run-executor.js'`. ref: server/src/modules/reviews/run-executor.ts:31
 
