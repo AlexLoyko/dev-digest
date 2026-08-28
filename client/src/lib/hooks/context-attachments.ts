@@ -65,6 +65,10 @@ export function useSetSkillContext() {
       api.put<ContextAttachmentSet>(`/skills/${skillId}/context`, { paths }),
     onSuccess: (_data, { skillId }) => {
       qc.invalidateQueries({ queryKey: ["skill-context", skillId] });
+      // AC-9: the preview panel must reflect the serialization actually
+      // used at run time — a stale preview after attach/detach shows a
+      // serialization that no longer matches what would be injected.
+      qc.invalidateQueries({ queryKey: ["skill-context-preview", skillId] });
     },
   });
 }

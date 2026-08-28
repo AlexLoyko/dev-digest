@@ -10,6 +10,7 @@ import React from "react";
 import { useTranslations } from "next-intl";
 import type { SpecFile } from "@devdigest/shared";
 import { Badge, Card, IconBtn, Icon } from "@devdigest/ui";
+import { useContextDocument } from "@/lib/hooks";
 import {
   buildDisplayRows,
   filterDisplayRows,
@@ -31,6 +32,12 @@ export interface ContextPickerProps {
   onChange: (paths: string[]) => void;
   missingPaths: string[];
   busy: boolean;
+  /** The repo the documents were scanned from — needed to fetch a single
+   *  document's full text on demand for the row preview (`GET
+   *  /repos/:id/context/document?path=`). The list endpoint that supplies
+   *  `documents` always returns `content: null`; only that per-document
+   *  endpoint populates it. */
+  repoId: string;
   /** Which mounting page's catalogue copy to read agent-/skill-specific
    *  strings from (heading, helper, attach/detach, order announcement).
    *  Defaults to "agents". */
@@ -43,6 +50,7 @@ export function ContextPicker({
   onChange,
   missingPaths,
   busy,
+  repoId,
   namespace = "agents",
 }: ContextPickerProps) {
   const t = useTranslations(`${namespace}.context`);
@@ -99,6 +107,7 @@ export function ContextPicker({
             <DocumentRow
               key={row.path}
               row={row}
+              repoId={repoId}
               isAttached={attachedPaths.includes(row.path)}
               isMissing={missingSet.has(row.path)}
               position={attachedPaths.indexOf(row.path)}
@@ -137,6 +146,7 @@ export function ContextPicker({
 
 interface DocumentRowProps {
   row: DisplayRow;
+  repoId: string;
   isAttached: boolean;
   isMissing: boolean;
   position: number;
@@ -152,6 +162,7 @@ interface DocumentRowProps {
 
 function DocumentRow({
   row,
+  repoId,
   isAttached,
   isMissing,
   position,
@@ -188,7 +199,10 @@ function DocumentRow({
             {name}
           </span>
         </span>
-        {previewOpen && doc?.content != null && <pre style={s.previewBlock}>{doc.content}</pre>}
+        {/* Mounted only while open — the fetch it owns is gated on that,
+            and its loading/success/error re-renders stay local to this
+            subtree instead of bubbling into DocumentRow. */}
+        {previewOpen && <DocumentPreview repoId={repoId} path={row.path} />}
       </div>
 
       <div style={s.chipRow}>
@@ -214,6 +228,25 @@ function DocumentRow({
       </div>
     </li>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Preview — owns its own fetch. The list endpoint that supplies `documents`
+// always returns `content: null` (server/src/modules/context/service.ts);
+// only `GET /repos/:id/context/document?path=` populates it. Rendered (and
+// therefore mounted) only when a row's preview is open, so `useContextDocument`
+// stays disabled — and never fires — until the user actually asks for it,
+// and only for that one path.
+// ---------------------------------------------------------------------------
+
+function DocumentPreview({ repoId, path }: { repoId: string; path: string }) {
+  const tCommon = useTranslations("common");
+  const { data, isLoading, isError } = useContextDocument(repoId, path);
+
+  if (isLoading) return <p style={s.previewBlock}>{tCommon("states.loading")}</p>;
+  if (isError) return <p style={s.previewBlock}>{tCommon("states.error")}</p>;
+  if (!data?.content) return null;
+  return <pre style={s.previewBlock}>{data.content}</pre>;
 }
 
 // ---------------------------------------------------------------------------

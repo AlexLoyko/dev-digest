@@ -1,7 +1,8 @@
-/* SkillEditor — 4-tab editor (Config | Preview | Stats | Versions). */
+/* SkillEditor — 5-tab editor (Config | Preview | Stats | Versions | Context). */
 "use client";
 
 import React from "react";
+import { useTranslations } from "next-intl";
 import { Tabs, Icon, Badge, Toggle } from "@devdigest/ui";
 import type { Skill } from "@devdigest/shared";
 import { useUpdateSkill } from "@/lib/hooks/skills";
@@ -10,11 +11,15 @@ import { ConfigTab } from "./_components/ConfigTab/ConfigTab";
 import { PreviewTab } from "./_components/PreviewTab/PreviewTab";
 import { StatsTab } from "./_components/StatsTab/StatsTab";
 import { VersionsTab } from "./_components/VersionsTab/VersionsTab";
+import { ContextTab } from "./_components/ContextTab";
 import { TABS } from "./constants";
 
 const VALID_TABS = TABS as readonly string[];
 
-const TAB_DEFS = [
+// The other tabs' labels are pre-existing hardcoded English (out of scope
+// for this task). The new "context" tab's label goes through the `skills`
+// namespace instead of extending that pattern — see `editor.tabs.context`.
+const BASE_TAB_DEFS = [
   { key: "config", label: "Config", icon: "Settings" as const },
   { key: "preview", label: "Preview", icon: "Eye" as const },
   { key: "stats", label: "Stats", icon: "BarChart" as const },
@@ -30,10 +35,16 @@ export function SkillEditor({
   tab: string;
   onTab: (t: string) => void;
 }) {
+  const t = useTranslations("skills");
   const update = useUpdateSkill();
   const activeTab = VALID_TABS.includes(tab) ? tab : "config";
   const { isDangerous, isSuspicious, isScanning, isBlocked, badge } =
     resolveSkillThreat(skill);
+
+  const tabDefs = [
+    ...BASE_TAB_DEFS,
+    { key: "context", label: t("editor.tabs.context"), icon: "FileText" as const },
+  ];
 
   const bannerConfig = isDangerous
     ? {
@@ -150,7 +161,7 @@ export function SkillEditor({
       {/* Tabs */}
       <div style={{ borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
         <Tabs
-          tabs={TAB_DEFS.map((tb) => ({
+          tabs={tabDefs.map((tb) => ({
             key: tb.key,
             label: tb.label,
             icon: tb.icon,
@@ -167,6 +178,7 @@ export function SkillEditor({
         {activeTab === "preview" && <PreviewTab skill={skill} />}
         {activeTab === "stats" && <StatsTab skillId={skill.id} />}
         {activeTab === "versions" && <VersionsTab skill={skill} />}
+        {activeTab === "context" && <ContextTab skillId={skill.id} />}
       </div>
     </div>
   );
