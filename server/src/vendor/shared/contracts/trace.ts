@@ -36,15 +36,23 @@ export const ToolCall = z.object({
 });
 export type ToolCall = z.infer<typeof ToolCall>;
 
+/** One spec document consulted while assembling the run's prompt. */
+export const SpecRead = z.object({
+  path: z.string(),
+  tokens: z.number().int(),
+  tokens_approximate: z.boolean().default(false),
+  status: z.enum(['read', 'missing', 'rejected', 'duplicate']),
+});
+export type SpecRead = z.infer<typeof SpecRead>;
+
 export const PromptAssembly = z.object({
   system: z.string(),
   skills: z.string().nullish(),
   memory: z.string().nullish(),
   specs: z.string().nullish(),
-  /** Callers-of-changed-symbols digest (T1.3); null when absent. */
+  /** Callers-of-changed-symbols digest (repo-intel); null when absent. */
   callers: z.string().nullish(),
-  /** Repo skeleton / map (T3); null when absent. Enables per-slot token
-      attribution in the run trace. */
+  /** Repo skeleton / map (repo-intel); null when absent. */
   repo_map: z.string().nullish(),
   /** PR author's description/body (truncated); null when absent. */
   pr_description: z.string().nullish(),
@@ -83,7 +91,9 @@ export const RunTrace = z.object({
   tool_calls: z.array(ToolCall),
   raw_output: z.string(),
   memory_pulled: z.array(MemoryPulled),
-  specs_read: z.array(z.string()),
+  specs_read: z.array(SpecRead),
+  /** Repo commit SHA the specs were read at; null when unknown/unavailable. */
+  specs_commit_sha: z.string().nullish(),
   log: z.array(RunLogLine),
 });
 export type RunTrace = z.infer<typeof RunTrace>;

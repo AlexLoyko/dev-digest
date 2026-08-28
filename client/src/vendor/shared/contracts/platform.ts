@@ -51,9 +51,9 @@ export const FEATURE_MODELS: FeatureModelDef[] = [
   {
     id: 'review_intent',
     label: 'PR Review · Intent',
-    description: 'Derives a PR’s intent and scope before review.',
-    defaultProvider: 'openai',
-    defaultModel: 'gpt-4.1',
+    description: "Derives a PR's intent and scope before review.",
+    defaultProvider: 'openrouter',
+    defaultModel: 'deepseek/deepseek-v4-flash',
   },
   {
     id: 'risk_brief',
@@ -249,6 +249,14 @@ export const SpecFile = z.object({
   content: z.string().nullish(),
   size: z.number().int().nullish(),
   updated_at: z.string().nullish(),
+  /** Which Project Context root the file was discovered under. */
+  root: z.enum(['specs', 'docs', 'insights']),
+  tokens: z.number().int().nullish(),
+  tokens_approximate: z.boolean().nullish(),
+  threat_level: z.enum(['unknown', 'safe', 'suspicious', 'dangerous']).nullish(),
+  used_by_agents: z.number().int().nullish(),
+  /** Set when the file was excluded from context assembly; explains why. */
+  excluded_reason: z.string().nullish(),
 });
 export type SpecFile = z.infer<typeof SpecFile>;
 
@@ -259,6 +267,46 @@ export const IndexStatus = z.object({
   chunks_indexed: z.number().int().nullish(),
 });
 export type IndexStatus = z.infer<typeof IndexStatus>;
+
+/** One document explicitly attached to an agent or skill's context. */
+export const ContextAttachment = z.object({
+  path: z.string(),
+  position: z.number().int(),
+});
+export type ContextAttachment = z.infer<typeof ContextAttachment>;
+
+/** Body for setting the ordered list of context document paths. */
+export const SetContextBody = z.object({
+  paths: z.array(z.string()),
+});
+export type SetContextBody = z.infer<typeof SetContextBody>;
+
+/** One document as it will actually be assembled into a run's prompt. */
+export const EffectiveContextDoc = z.object({
+  path: z.string(),
+  position: z.number().int(),
+  source: z.enum(['agent', 'skill']),
+  skill_id: z.string().nullish(),
+  tokens: z.number().int(),
+  tokens_approximate: z.boolean(),
+  missing: z.boolean(),
+});
+export type EffectiveContextDoc = z.infer<typeof EffectiveContextDoc>;
+
+/** GET response listing discovered Project Context documents + index state. */
+export const ContextListResponse = z.object({
+  documents: z.array(SpecFile),
+  index: IndexStatus,
+  commit_sha: z.string().nullish(),
+  scanned_at: z.string().nullish(),
+});
+export type ContextListResponse = z.infer<typeof ContextListResponse>;
+
+/** Response for previewing a single context document's text. */
+export const ContextPreview = z.object({
+  text: z.string(),
+});
+export type ContextPreview = z.infer<typeof ContextPreview>;
 
 // ---- Run request (review trigger; owned by A2, contract lives here) ----
 export const RunRequest = z.object({

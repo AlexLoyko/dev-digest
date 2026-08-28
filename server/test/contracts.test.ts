@@ -162,10 +162,23 @@ describe('AI contracts parse fixtures', () => {
       tool_calls: [{ tool: 'read_file', args: "'src/config.ts'", meta: '1,240 bytes', ms: 120 }],
       raw_output: '{}',
       memory_pulled: [{ pr: 288, text: 'verified via stripe-signature' }],
-      specs_read: ['specs/security-baseline.md'],
+      specs_read: [
+        { path: 'specs/security-baseline.md', tokens: 412, status: 'read' },
+        { path: 'specs/legacy-payments.md', tokens: 0, status: 'missing' },
+        {
+          path: 'specs/onboarding.md',
+          tokens: 900,
+          tokens_approximate: true,
+          status: 'duplicate',
+        },
+      ],
+      specs_commit_sha: 'a1b2c3d',
       log: [{ t: '00.00', kind: 'info', msg: 'started' }],
     });
     expect(trace.tool_calls).toHaveLength(1);
+    expect(trace.specs_read).toHaveLength(3);
+    expect(trace.specs_read[0]!.status).toBe('read');
+    expect(trace.specs_read[2]!.tokens_approximate).toBe(true);
   });
 });
 
