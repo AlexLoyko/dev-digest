@@ -3,6 +3,7 @@ import type {
   Provider,
   Review,
   RunTrace,
+  SpecRead,
   UnifiedDiff,
 } from "@devdigest/shared";
 import { reviewPullRequest, countBlockers } from "@devdigest/reviewer-core";
@@ -19,6 +20,8 @@ import { REVIEW_STRATEGY } from "./constants.js";
 import { taskLine } from "./helpers.js";
 import { loadDiff } from "./diff-loader.js";
 import { IntentService } from "../intent/service.js";
+import { buildEffectiveSet } from "../context/ordering.js";
+import { resolveContained } from "../context/path-guard.js";
 
 /** Thrown by a run when the user cancels it mid-flight (between map files). */
 export class RunCancelledError extends Error {
@@ -242,6 +245,13 @@ export class ReviewRunExecutor {
       `Starting review with agent "${agent.name}" (${agent.provider}/${agent.model})`,
     );
 
+    // Populated by buildProjectContextSpecs below, before reviewPullRequest is
+    // called. Declared outer-scoped (not inside the try) so BOTH trace sites —
+    // the success trace and the catch-block failure trace — persist the same
+    // attached-document audit even when the run fails AFTER specs were read.
+    let specDocs: SpecRead[] = [];
+    let specsCommitSha: string | null = null;
+
     try {
       // Resolve the agent's LLM provider. (container.llm throws if the provider
       // key is missing — caught below and persisted as a failed run.)
@@ -303,6 +313,19 @@ export class ReviewRunExecutor {
         );
       }
 
+      // ---- Project context: read the agent's effective attached documents ---
+      // AC-11: every document in the agent's effective set (agent-attached +
+      // skill-inherited, deduped/ordered by buildEffectiveSet) is read from
+      // THIS run's repo clone and passed as `specs` into reviewPullRequest.
+      // No LLM call anywhere on this path (AC-15). Populates specDocs/
+      // specsCommitSha (outer-scoped) so BOTH trace sites below — success and
+      // the catch-block failure trace — persist the same attached-document
+      // audit, including documents dropped as rejected/missing/duplicate.
+      const { specDocs: builtSpecDocs, specsForPrompt, commitSha } =
+        await this.buildProjectContextSpecs(repo, agent, runLog);
+      specDocs = builtSpecDocs;
+      specsCommitSha = commitSha;
+
       // ---- Engine: assemble → single-pass → grounding -----------------------
       // The pure review pipeline lives in @devdigest/reviewer-core (shared with
       // the CI runner). The service owns only I/O: repo-intel context resolution
@@ -321,6 +344,11 @@ export class ReviewRunExecutor {
         // T1.3 — pass the callers digest only when we built one. assemblePrompt
         // omits the section when this is empty/undefined.
         ...(callersDigest ? { callers: callersDigest } : {}),
+        // AC-11: project-context spec documents — assemblePrompt renders them
+        // as "## Project context", each individually delimited as untrusted
+        // content (reviewer-core's buildProjectContextSection). Omitted
+        // entirely (no key) when the effective set produced nothing readable.
+        ...(specsForPrompt.length > 0 ? { specs: specsForPrompt } : {}),
         // T3 — repo skeleton, same omit-when-empty contract.
         ...(repoMap ? { repoMap } : {}),
         // PR author's description/body — untrusted; assemblePrompt wraps +
@@ -412,7 +440,10 @@ export class ReviewRunExecutor {
         })),
         raw_output: outcome.raw,
         memory_pulled: [],
-        specs_read: [],
+        // AC-11/AC-17: every attached document (read, missing, rejected, or
+        // duplicate) so the trace is an audit of intent, not only success.
+        specs_read: specDocs,
+        specs_commit_sha: specsCommitSha,
         // Persisted log = the run's FULL event buffer (incl. shared pre-work:
         // diff load + intent), not just events recorded inside this method.
         log: runLog.logFor(runId),
@@ -450,6 +481,8 @@ export class ReviewRunExecutor {
             agent,
             "0/0 passed",
             Date.now() - start,
+            specDocs,
+            specsCommitSha,
           ),
         )
         .catch(() => undefined);
@@ -569,6 +602,8 @@ export class ReviewRunExecutor {
     agent: AgentRow,
     grounding: string,
     durationMs = 0,
+    specDocs: SpecRead[] = [],
+    specsCommitSha: string | null = null,
   ): RunTrace {
     return {
       config: {
@@ -597,10 +632,137 @@ export class ReviewRunExecutor {
       tool_calls: [],
       raw_output: "",
       memory_pulled: [],
-      specs_read: [],
+      specs_read: specDocs,
+      specs_commit_sha: specsCommitSha,
       log: this.container.runBus
         .buffer(runId)
         .map((e) => ({ t: e.t, kind: e.kind, msg: e.msg })),
     };
+  }
+
+  /**
+   * AC-11 / AC-12 / AC-13 / AC-14 / AC-16 / AC-17 / EC-8 / NFR-3 / NFR-6 — read
+   * the agent's effective project-context document set for THIS run's repo
+   * clone, before reviewPullRequest is called. No LLM call anywhere here
+   * (AC-15).
+   *
+   * Returns:
+   *  - `specsForPrompt` — {path, text} for every document that was actually
+   *    read; passed as `specs` into reviewPullRequest (caller omits the key
+   *    entirely when this is empty — EC-8).
+   *  - `specDocs` — a SpecRead per ATTACHED document (including ones dropped
+   *    as rejected/missing/duplicate), for `RunTrace.specs_read` — the trace
+   *    is an audit of intent, not only of what succeeded.
+   *  - `commitSha` — the repo commit the documents were read at (null when
+   *    nothing was attached, so no git call is made for the common case).
+   */
+  private async buildProjectContextSpecs(
+    repo: typeof schema.repos.$inferSelect,
+    agent: AgentRow,
+    runLog: RunLogger,
+  ): Promise<{
+    specDocs: SpecRead[];
+    specsForPrompt: Array<{ path: string; text: string }>;
+    commitSha: string | null;
+  }> {
+    const [agentDocs, skillDocs] = await Promise.all([
+      this.container.contextRepo.agentAttachments(agent.id),
+      this.container.contextRepo.skillAttachmentsForAgent(agent.id),
+    ]);
+
+    if (agentDocs.length === 0 && skillDocs.length === 0) {
+      return { specDocs: [], specsForPrompt: [], commitSha: null };
+    }
+
+    // AC-12/AC-13: agent-attached docs first (by position), then
+    // skill-inherited docs (by skill order, then position), deduped by path
+    // (first occurrence wins). ordering.ts is owned by another task — reused
+    // as-is, not reimplemented.
+    const effectiveSet = buildEffectiveSet({ agentDocs, skillDocs });
+
+    // buildEffectiveSet drops duplicate paths silently (AC-13). Recover the
+    // dropped ones here so every ATTACHED document — including the ones
+    // dropped as duplicates — still appears in the trace (see plan's
+    // audit-of-intent rationale). Agent docs are listed before skill docs
+    // below, matching buildEffectiveSet's own agent-beats-skill priority, so
+    // the first occurrence of a path is always the one buildEffectiveSet kept.
+    const effectivePaths = new Set(effectiveSet.map((d) => d.path));
+    const claimed = new Set<string>();
+    const duplicates: SpecRead[] = [];
+    for (const raw of [...agentDocs, ...skillDocs]) {
+      if (effectivePaths.has(raw.path) && !claimed.has(raw.path)) {
+        claimed.add(raw.path);
+        continue;
+      }
+      duplicates.push({
+        path: raw.path,
+        tokens: 0,
+        tokens_approximate: false,
+        status: "duplicate",
+      });
+    }
+
+    const specDocs: SpecRead[] = [];
+    const specsForPrompt: Array<{ path: string; text: string }> = [];
+
+    for (const doc of effectiveSet) {
+      // AC-16: re-validate containment at READ time, not just attach time —
+      // an attachment safe when it was set may have been invalidated since
+      // (clone re-cloned, a symlink planted, etc.).
+      const resolved = repo.clonePath
+        ? await resolveContained(repo.clonePath, doc.path)
+        : null;
+      if (resolved === null) {
+        specDocs.push({
+          path: doc.path,
+          tokens: 0,
+          tokens_approximate: false,
+          status: "rejected",
+        });
+        continue;
+      }
+
+      try {
+        // Read via THIS run's actual repo (owner/name resolve to
+        // repo.clonePath inside SimpleGitClient) — never the workspace-wide
+        // "first repo with a clone" heuristic `ContextService` uses, since we
+        // already have the correct repo for this run.
+        const text = await this.container.git.readFile(
+          { owner: repo.owner, name: repo.name },
+          doc.path,
+        );
+        const { tokens, approximate } =
+          this.container.tokenizer.countDetailed(text);
+        specDocs.push({
+          path: doc.path,
+          tokens,
+          tokens_approximate: approximate,
+          status: "read",
+        });
+        specsForPrompt.push({ path: doc.path, text });
+      } catch {
+        // AC-14 / NFR-3: a deleted/unreadable attached file must not fail the
+        // run. RunLogger has no `warn` (only info/tool/result/error) — `info`
+        // is deliberate so the run still completes normally.
+        specDocs.push({
+          path: doc.path,
+          tokens: 0,
+          tokens_approximate: false,
+          status: "missing",
+        });
+        runLog.info(
+          `WARN — project context document missing: ${doc.path}`,
+        );
+      }
+    }
+
+    specDocs.push(...duplicates);
+
+    const commitSha = await this.container.git.currentHead({
+      owner: repo.owner,
+      name: repo.name,
+    });
+
+    return { specDocs, specsForPrompt, commitSha };
   }
 }

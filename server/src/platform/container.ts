@@ -28,6 +28,7 @@ import { AgentsRepository } from '../modules/agents/repository.js';
 import { SkillsRepository } from '../modules/skills/repository.js';
 import { ReviewRepository } from '../modules/reviews/repository.js';
 import { ContextRepository } from '../modules/context/repository.js';
+import { RepoRepository } from '../modules/repos/repository.js';
 import type { RepoIntel } from '../modules/repo-intel/types.js';
 import { RepoIntelService } from '../modules/repo-intel/service.js';
 import { type DepGraph, DepCruiseGraph } from '../adapters/depgraph/index.js';
@@ -80,6 +81,7 @@ export class Container {
   private _skillsRepo?: SkillsRepository;
   private _reviewRepo?: ReviewRepository;
   private _contextRepo?: ContextRepository;
+  private _reposRepo?: RepoRepository;
   private _repoIntel?: RepoIntel;
   private _depgraph?: DepGraph;
   private _tokenizer?: Tokenizer;
@@ -122,6 +124,12 @@ export class Container {
 
   get contextRepo(): ContextRepository {
     return (this._contextRepo ??= new ContextRepository(this.db));
+  }
+
+  /** Repos data-access, shared so a service in another module (e.g. `context`)
+   * never has to construct `RepoRepository` itself. */
+  get reposRepo(): RepoRepository {
+    return (this._reposRepo ??= new RepoRepository(this.db));
   }
 
   get codeIndex(): CodeIndex {
