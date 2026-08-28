@@ -6,6 +6,7 @@
 export {
   assemblePrompt,
   wrapUntrusted,
+  buildProjectContextSection,
   type PromptParts,
   type AssembledPrompt,
 } from '@devdigest/reviewer-core';

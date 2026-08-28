@@ -15,6 +15,13 @@ import { getEncoding, type Tiktoken } from 'js-tiktoken';
 
 export interface Tokenizer {
   count(text: string): number;
+  /**
+   * Same count as `count()`, plus whether it came from the real encoder or the
+   * character-based fallback. `approximate: true` iff the sticky `broken` fallback
+   * is in effect — never throws (EC-5: the exact encoder is unavailable → an
+   * approximate count is shown instead, labelled as approximate, no error surfaces).
+   */
+  countDetailed(text: string): { tokens: number; approximate: boolean };
 }
 
 /** Heuristic fallback used before/instead of a real encoder. */
@@ -35,6 +42,18 @@ export class TiktokenTokenizer implements Tokenizer {
       // BPE load failed once — don't retry per call; stick to the heuristic.
       this.broken = true;
       return approxTokens(text);
+    }
+  }
+
+  countDetailed(text: string): { tokens: number; approximate: boolean } {
+    if (this.broken) return { tokens: approxTokens(text), approximate: true };
+    try {
+      this.enc ??= getEncoding('cl100k_base');
+      return { tokens: this.enc.encode(text).length, approximate: false };
+    } catch {
+      // BPE load failed once — don't retry per call; stick to the heuristic.
+      this.broken = true;
+      return { tokens: approxTokens(text), approximate: true };
     }
   }
 }

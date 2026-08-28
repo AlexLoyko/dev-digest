@@ -34,6 +34,7 @@ import type {
   WebFetchClient,
 } from '@devdigest/shared';
 import { parseUnifiedDiff } from './git/diff-parser.js';
+import { approxTokens, type Tokenizer } from './tokenizer/index.js';
 
 /**
  * Deterministic MOCK adapters for tests/dev — NO real network. Each mirrors the
@@ -273,7 +274,7 @@ export class MockGitClient implements GitClient {
     this.syncedHead = this.opts.syncedHead ?? this.opts.head ?? 'a1b2c3d4';
     return { head: this.syncedHead };
   }
-  async currentHead(): Promise<string> {
+  async currentHead(_repo: RepoRef): Promise<string> {
     return this.syncedHead ?? this.opts.head ?? 'a1b2c3d4';
   }
   async diffNameOnly(): Promise<string[]> {
@@ -327,6 +328,25 @@ export class MockSecretsProvider implements SecretsProvider {
   constructor(private secrets: Partial<Record<string, string>> = {}) {}
   async get(key: SecretKey): Promise<string | undefined> {
     return this.secrets[key as string];
+  }
+}
+
+// ---------- Mock Tokenizer ----------
+export interface MockTokenizerOptions {
+  /** When true, always take the "broken encoder" fallback path (EC-5). */
+  forceFallback?: boolean;
+}
+
+/** Deterministic stand-in for TiktokenTokenizer — never loads real BPE ranks. */
+export class MockTokenizer implements Tokenizer {
+  constructor(private opts: MockTokenizerOptions = {}) {}
+
+  count(text: string): number {
+    return approxTokens(text);
+  }
+
+  countDetailed(text: string): { tokens: number; approximate: boolean } {
+    return { tokens: approxTokens(text), approximate: this.opts.forceFallback ?? false };
   }
 }
 

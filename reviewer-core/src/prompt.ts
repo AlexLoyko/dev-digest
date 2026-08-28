@@ -33,6 +33,24 @@ export function wrapUntrusted(label: string, content: string): string {
   return `<untrusted source="${label}">\n${safe}\n</untrusted>`;
 }
 
+/**
+ * Build the `## Project context` body from resolved spec documents. Each
+ * document is delimiter-wrapped with its own path as the untrusted `source`
+ * label (so the model — and the run trace — can see which file a claim came
+ * from). Blank-text entries are filtered out; an empty/undefined input or an
+ * all-blank set returns `undefined` so the caller omits the heading entirely
+ * (no behavior change vs. no specs at all).
+ */
+export function buildProjectContextSection(
+  specs?: Array<{ path: string; text: string }>,
+): string | undefined {
+  if (!specs || specs.length === 0) return undefined;
+  const blocks = specs
+    .filter((s) => s.text.trim().length > 0)
+    .map((s) => wrapUntrusted(`spec:${s.path}`, s.text));
+  return blocks.length > 0 ? blocks.join('\n\n') : undefined;
+}
+
 /** Cap the PR description so a huge author body can't blow the token budget. */
 const MAX_PR_DESCRIPTION_CHARS = 4000;
 
@@ -43,8 +61,8 @@ export interface PromptParts {
   skills?: string[];
   /** Relevant memory items (trusted, curated). */
   memory?: string[];
-  /** Project-context spec chunks (untrusted content). */
-  specs?: string[];
+  /** Project-context spec chunks (untrusted content), each with its source path. */
+  specs?: Array<{ path: string; text: string }>;
   /**
    * Repo skeleton / map (T3): top-ranked symbols by signature, token-budgeted.
    * Untrusted (derived from repo code) — delimiter-wrapped. Rendered before
@@ -98,10 +116,7 @@ export function assemblePrompt(parts: PromptParts): AssembledPrompt {
     parts.memory && parts.memory.length > 0
       ? parts.memory.map((m) => `- ${m}`).join('\n')
       : undefined;
-  const specsBlock =
-    parts.specs && parts.specs.length > 0
-      ? parts.specs.map((s, i) => wrapUntrusted(`spec-${i}`, s)).join('\n\n')
-      : undefined;
+  const specsBlock = buildProjectContextSection(parts.specs);
 
   const prDescription =
     parts.prDescription && parts.prDescription.trim().length > 0

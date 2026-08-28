@@ -97,5 +97,26 @@
     "bodyLabel": "Skill body (Markdown)",
     "bodyHint": "Saving a changed body creates a new immutable version.",
     "version": "v{version}"
+  },
+  "editor": {
+    "tabs": {
+      "context": "Context"
+    }
+  },
+  "context": {
+    "heading": "Attached context",
+    "attachedCount": "{count, plural, one {# file attached} other {# files attached}}",
+    "helper": "Attach specs, docs, or insights so this skill's instructions include them as grounding context.",
+    "filterPlaceholder": "Filter context files…",
+    "tokensTotal": "{count, plural, one {# token total} other {# tokens total}}",
+    "injectedNote": "Injected into the prompt in the order shown below.",
+    "missingInRepo": "Not found in repo — was it moved or deleted?",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "attach": "Attach",
+    "detach": "Detach",
+    "orderAnnouncement": "{name} moved to position {position} of {total}",
+    "serializesAs": "Serialized as an untrusted data block, wrapped and labeled with its source path.",
+    "inheritNote": "Agents that enable this skill automatically inherit its attached context."
   }
 }

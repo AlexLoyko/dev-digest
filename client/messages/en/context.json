@@ -10,7 +10,36 @@
   "kb": "{kb}kb",
   "empty": {
     "title": "No spec files yet",
-    "body": "Drop your PRDs, tech specs, and acceptance criteria under .devdigest/specs/. Every agent and the PR brief read them as grounding context."
+    "body": "Drop your PRDs, tech specs, and acceptance criteria under specs/, docs/, or insights/ — matched at any depth. Every agent and the PR brief read them as grounding context."
+  },
+  "roots": "Scanned roots",
+  "notCloned": {
+    "title": "Repo not cloned",
+    "body": "Clone this repo locally to scan specs/, docs/, and insights/ for project context."
+  },
+  "sourceRoot": {
+    "specs": "specs/",
+    "docs": "docs/",
+    "insights": "insights/"
+  },
+  "usedByAgents": "{count, plural, one {Used by # agent} other {Used by # agents}}",
+  "tokens": "{count, plural, one {# token} other {# tokens}}",
+  "tokensApprox": "estimated",
+  "threat": {
+    "safe": "Safe",
+    "suspicious": "Suspicious",
+    "dangerous": "Dangerous",
+    "unknown": "Unknown"
+  },
+  "excluded": "Excluded",
+  "filter": {
+    "placeholder": "Filter context files…",
+    "showing": "Showing {count} of {total}"
+  },
+  "readOnlyNotice": "Read-only — context files are scanned from the repo and can’t be edited here.",
+  "scan": {
+    "indexed": "{count, plural, one {# file indexed} other {# files indexed}}",
+    "lastRun": "Last scanned {time}"
   },
   "mode": {
     "preview": "preview",
