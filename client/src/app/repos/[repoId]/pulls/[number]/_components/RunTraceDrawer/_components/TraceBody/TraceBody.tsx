@@ -4,9 +4,9 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Badge } from "@devdigest/ui";
-import type { RunTrace, FindingRecord } from "@devdigest/shared";
-import { PROMPT_COLORS } from "../../constants";
+import { Badge, Icon } from "@devdigest/ui";
+import type { RunTrace, FindingRecord, SpecRead } from "@devdigest/shared";
+import { PROMPT_COLORS, SPECS_STATUS_COLORS } from "../../constants";
 import { formatCost, formatSeconds, formatTokens } from "../../helpers";
 import { s } from "../../styles";
 import { TraceSection } from "../TraceSection";
@@ -14,6 +14,49 @@ import { ToolCallRow } from "../ToolCallRow";
 import { PromptBlock } from "../PromptBlock";
 import { FindingsSection } from "../FindingsSection";
 import { Row, Stat } from "../atoms";
+
+// Local layout for the per-spec rows and the clone-sha line. Kept colocated
+// here (not in styles.ts) since TraceBody owns only its own file for this task.
+const specItemStyle: React.CSSProperties = { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" };
+const specTokensStyle: React.CSSProperties = { fontSize: 12, color: "var(--text-muted)" };
+const specsShaStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  marginTop: 6,
+  fontSize: 12,
+  color: "var(--text-muted)",
+};
+// Overrides s.specsWrap's row-wrap layout (built for the old flat chip list)
+// with a vertical stack so the per-spec rows and the clone-sha line sit on
+// their own lines. Local to this file — styles.ts is out of scope for T18.
+const specsContainerStyle: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 6 };
+
+function SpecStatusBadge({ status }: { status: SpecRead["status"] }) {
+  const t = useTranslations("runs");
+  const c = SPECS_STATUS_COLORS[status];
+  return (
+    <Badge color={c.color} bg={c.bg}>
+      {t(`trace.config.specsStatus.${status}`)}
+    </Badge>
+  );
+}
+
+function SpecReadItem({ spec }: { spec: SpecRead }) {
+  const t = useTranslations("runs");
+  return (
+    <div style={specItemStyle}>
+      <span className="mono" style={s.spec}>
+        {spec.path}
+      </span>
+      <span style={specTokensStyle}>
+        {spec.tokens_approximate ? "≈" : ""}
+        {t("trace.config.specsTokens", { count: spec.tokens })}
+      </span>
+      <SpecStatusBadge status={spec.status} />
+    </div>
+  );
+}
 
 export function TraceBody({ trace, findings }: { trace: RunTrace; findings: FindingRecord[] }) {
   const t = useTranslations("runs");
@@ -36,15 +79,17 @@ export function TraceBody({ trace, findings }: { trace: RunTrace; findings: Find
             <span>{t("trace.config.items", { count: trace.memory_pulled.length })}</span>
           </Row>
           <Row label={t("trace.config.specsRead")}>
-            <div style={s.specsWrap}>
+            <div style={specsContainerStyle}>
               {trace.specs_read.length === 0 ? (
                 <span style={s.specsNone}>{t("trace.config.none")}</span>
               ) : (
-                trace.specs_read.map((sp, i) => (
-                  <span key={i} className="mono" style={s.spec}>
-                    {sp}
-                  </span>
-                ))
+                trace.specs_read.map((sp, i) => <SpecReadItem key={i} spec={sp} />)
+              )}
+              {trace.specs_commit_sha != null && (
+                <div style={specsShaStyle}>
+                  <Icon.GitCommit size={12} aria-hidden="true" />
+                  <span className="mono">{trace.specs_commit_sha}</span>
+                </div>
               )}
             </div>
           </Row>

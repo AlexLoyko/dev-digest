@@ -28,11 +28,27 @@ export function Markdown({ children }: { children?: string | null }) {
               {children}
             </code>
           ),
-          a: ({ children, href }) => (
-            <a href={href} style={{ color: "var(--accent-text)", textDecoration: "underline" }}>
-              {children}
-            </a>
-          ),
+          a: ({ children, href }) => {
+            // Security hardening: only http:, https:, and relative (no
+            // scheme — e.g. "/foo", "#anchor", "foo/bar.md") hrefs are
+            // rendered as links. Any other scheme (javascript:, data:, etc.)
+            // is rendered as inert text so it can never execute on click.
+            const scheme = href?.match(/^([a-z][a-z0-9+.-]*):/i)?.[1]?.toLowerCase();
+            const isSafe = !!href && (scheme === undefined || scheme === "http" || scheme === "https");
+            if (!isSafe) {
+              return <span>{children}</span>;
+            }
+            const isExternal = scheme === "http" || scheme === "https";
+            return (
+              <a
+                href={href}
+                style={{ color: "var(--accent-text)", textDecoration: "underline" }}
+                {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+              >
+                {children}
+              </a>
+            );
+          },
         }}
       >
         {children}

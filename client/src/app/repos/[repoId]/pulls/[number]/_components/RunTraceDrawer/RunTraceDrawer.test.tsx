@@ -12,7 +12,11 @@ const TRACE: RunTrace = {
   tool_calls: [{ tool: "review_file", args: "src/config.ts", meta: "single-pass", ms: 1200 }],
   raw_output: '{"verdict":"request_changes"}',
   memory_pulled: [{ pr: 471, text: "rate-limit public endpoints" }],
-  specs_read: [],
+  specs_read: [
+    { path: "specs/auth.md", tokens: 420, tokens_approximate: false, status: "read" },
+    { path: "docs/legacy-flow.md", tokens: 0, tokens_approximate: false, status: "missing" },
+  ],
+  specs_commit_sha: "a1b2c3d",
   log: [
     { t: "00.10", kind: "info", msg: "Starting review with agent Security" },
     { t: "00.90", kind: "result", msg: "Citation grounding: 2/2 passed" },

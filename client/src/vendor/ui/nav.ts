@@ -29,6 +29,13 @@ export const NAV: NavGroup[] = [
         href: "/repos/:repoId/pulls",
         gKey: "p",
       },
+      {
+        key: "context",
+        label: "Project Context",
+        icon: "Folder",
+        href: "/repos/:repoId/context",
+        gKey: "c",
+      },
     ],
   },
   {
