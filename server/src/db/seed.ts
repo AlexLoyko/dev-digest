@@ -2,6 +2,11 @@ import "dotenv/config";
 import { createDb, type Db } from "./client.js";
 import * as t from "./schema.js";
 import { eq, and } from "drizzle-orm";
+import { homedir } from "node:os";
+import { join, isAbsolute, resolve } from "node:path";
+import { mkdir, writeFile, access } from "node:fs/promises";
+import { constants } from "node:fs";
+import { simpleGit } from "simple-git";
 
 /**
  * Seed the starter's demo data. Idempotent: re-running upserts the default
@@ -18,8 +23,161 @@ import { eq, and } from "drizzle-orm";
 export const DEFAULT_WORKSPACE_NAME = "default";
 export const SYSTEM_USER_EMAIL = "you@local";
 
+/**
+ * Absolute path where repos are cloned, computed exactly like
+ * platform/config.ts:77-79 (DEVDIGEST_CLONE_DIR relative to cwd, or
+ * ~/.devdigest/workspace by default). seed.ts is allowlisted by
+ * scripts/arch-check.sh to read process.env directly — this reads a
+ * non-secret path setting, same allowance the CLI entrypoint below uses
+ * for DATABASE_URL.
+ */
+function defaultCloneDir(): string {
+  const raw = process.env.DEVDIGEST_CLONE_DIR ?? join(homedir(), ".devdigest", "workspace");
+  return isAbsolute(raw) ? raw : resolve(process.cwd(), raw);
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path, constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const FIXTURE_PUBLIC_API_MD = `# Public API — PRD
+
+## Overview
+
+This document defines the public-facing REST API surface for payments-api:
+authentication, versioning, and the operational limits every endpoint must
+respect.
+
+## Rate Limiting
+
+Every public endpoint MUST enforce rate limiting per API key:
+
+- 100 requests/minute sustained
+- Burst allowance up to 200 requests
+- Requests beyond the limit return \`429 Too Many Requests\` with a
+  \`Retry-After\` header set to the number of seconds until the window resets.
+
+Rate limit state is tracked per API key, not per IP, so a single client
+cannot bypass the limit by rotating source addresses.
+
+## Versioning
+
+All breaking changes ship under a new \`/v{n}/\` path prefix. Additive,
+backwards-compatible changes may land on the current version.
+`;
+
+const FIXTURE_SECURITY_BASELINE_MD = `# Security Baseline
+
+## Secrets
+
+No credential, API key, or private key may appear in source, logs, or error
+responses. All secrets are injected at runtime through the secrets provider.
+
+## Authentication
+
+Every endpoint other than /health requires a valid bearer token. Tokens are
+short-lived and verified on every request — no server-side session cache.
+
+## Input Validation
+
+All request bodies and query parameters are validated against a schema
+before touching any handler logic. Unvalidated input never reaches a
+database query or an outbound HTTP call.
+`;
+
+const FIXTURE_ARCHITECTURE_MD = `# Architecture
+
+payments-api is a Fastify service backed by PostgreSQL. Each feature lives
+in its own module under src/modules/, following an onion layering: routes
+validate input, services orchestrate, repositories own the SQL.
+
+## Components
+
+- src/modules/public-api — the rate-limited public surface
+- src/modules/webhooks — inbound webhook ingestion
+- src/modules/ledger — the append-only transaction ledger
+`;
+
+const FIXTURE_PERF_BUDGET_MD = `# Performance Budget
+
+## Latency targets
+
+- p50 under 80ms for read endpoints
+- p99 under 400ms for read endpoints
+- p99 under 900ms for write endpoints that touch the ledger
+
+## Notes
+
+The rate limiter check runs before the handler and must add no more than
+2ms of overhead at p99.
+`;
+
+const FIXTURE_README_MD = `# payments-api
+
+Internal payments service. See specs/ for product requirements and docs/
+for architecture notes.
+`;
+
+const FIXTURE_IGNORED_MD = `# Ignored
+
+This file lives under node_modules and must never be treated as a context
+document.
+`;
+
+/**
+ * Idempotent fixture git repo for the seeded acme/payments-api demo, so
+ * Project Context has real files to scan end-to-end.
+ *
+ * Layout: specs/, docs/, insights/ are the three scanned roots. README.md
+ * at the root and node_modules/docs/ are negative fixtures the context
+ * scanner must exclude. specs/deleted-doc.md is referenced from an
+ * attachment below but deliberately NOT written here — that mismatch is
+ * the fixture for the "missing in repo" badge (EC-7).
+ */
+async function ensureFixtureRepo(cloneDir: string): Promise<string> {
+  const repoDir = join(cloneDir, "acme", "payments-api");
+  if (await pathExists(join(repoDir, ".git"))) return repoDir;
+
+  await mkdir(join(repoDir, "specs"), { recursive: true });
+  await mkdir(join(repoDir, "docs"), { recursive: true });
+  await mkdir(join(repoDir, "insights"), { recursive: true });
+  await mkdir(join(repoDir, "node_modules", "docs"), { recursive: true });
+
+  await writeFile(join(repoDir, "specs", "public-api.md"), FIXTURE_PUBLIC_API_MD, "utf8");
+  await writeFile(
+    join(repoDir, "specs", "security-baseline.md"),
+    FIXTURE_SECURITY_BASELINE_MD,
+    "utf8",
+  );
+  await writeFile(join(repoDir, "docs", "architecture.md"), FIXTURE_ARCHITECTURE_MD, "utf8");
+  await writeFile(join(repoDir, "insights", "perf-budget.md"), FIXTURE_PERF_BUDGET_MD, "utf8");
+  await writeFile(join(repoDir, "README.md"), FIXTURE_README_MD, "utf8");
+  await writeFile(join(repoDir, "node_modules", "docs", "ignored.md"), FIXTURE_IGNORED_MD, "utf8");
+
+  try {
+    const git = simpleGit(repoDir);
+    await git.raw(["init", "-b", "main"]);
+    await git.addConfig("user.email", "seed@devdigest.local");
+    await git.addConfig("user.name", "DevDigest Seed");
+    await git.add(".");
+    await git.commit("seed: fixture context documents for acme/payments-api");
+  } catch (err) {
+    // Another concurrent seed run (e.g. parallel *.it.test.ts workers sharing
+    // this same clone dir) may have won the race and already committed.
+    if (!(await pathExists(join(repoDir, ".git")))) throw err;
+  }
+
+  return repoDir;
+}
+
 export async function seed(
   db: Db,
+  cloneDir: string = defaultCloneDir(),
 ): Promise<{ workspaceId: string; userId: string }> {
   // ---- workspace + user (no-auth defaults) ----
   let [ws] = await db
@@ -66,6 +224,8 @@ export async function seed(
   }
 
   // ---- demo repo (acme/payments-api) ----
+  const fixtureRepoPath = await ensureFixtureRepo(cloneDir);
+
   let [repo] = await db
     .select()
     .from(t.repos)
@@ -84,12 +244,45 @@ export async function seed(
         name: "payments-api",
         fullName: "acme/payments-api",
         defaultBranch: "main",
-        clonePath: null,
+        clonePath: fixtureRepoPath,
         createdBy: userId,
       })
       .returning();
+  } else if (repo.clonePath !== fixtureRepoPath) {
+    // Workspace seeded before this fixture existed (row present with
+    // clonePath: null from an older run) — bring it current.
+    [repo] = await db
+      .update(t.repos)
+      .set({ clonePath: fixtureRepoPath })
+      .where(eq(t.repos.id, repo.id))
+      .returning();
   }
   const repoId = repo!.id;
+
+  // ---- second demo repo (not cloned) — exercises the "not cloned" empty
+  // state in Project Context. Inserted AFTER acme/payments-api above so it
+  // sorts second in unordered `list()` reads; the e2e home redirect follows
+  // the FIRST repo and must land on acme/payments-api, not this one.
+  const [existingSecondRepo] = await db
+    .select()
+    .from(t.repos)
+    .where(
+      and(
+        eq(t.repos.workspaceId, workspaceId),
+        eq(t.repos.fullName, "acme/docs-portal"),
+      ),
+    );
+  if (!existingSecondRepo) {
+    await db.insert(t.repos).values({
+      workspaceId,
+      owner: "acme",
+      name: "docs-portal",
+      fullName: "acme/docs-portal",
+      defaultBranch: "main",
+      clonePath: null,
+      createdBy: userId,
+    });
+  }
 
   // ---- PR #482 (rate limiting) ----
   let [pr] = await db
@@ -468,6 +661,42 @@ Suggest adding a test case with the specific scenario that would exercise the un
         .values({ agentId: agent.id, skillId, order: i })
         .onConflictDoNothing();
     }
+  }
+
+  // ---- project-context attachments ----
+  // Security Reviewer: security-baseline.md (0), public-api.md (1), and a
+  // path deliberately NOT written to the fixture repo (2) — renders the
+  // "missing in repo" badge (EC-7) once modules/context (T8-T11) ships.
+  const [securityReviewer] = await db
+    .select()
+    .from(t.agents)
+    .where(
+      and(
+        eq(t.agents.workspaceId, workspaceId),
+        eq(t.agents.name, "Security Reviewer"),
+      ),
+    );
+  if (securityReviewer) {
+    const securityReviewerAttachments: Array<{ path: string; position: number }> = [
+      { path: "specs/security-baseline.md", position: 0 },
+      { path: "specs/public-api.md", position: 1 },
+      { path: "specs/deleted-doc.md", position: 2 },
+    ];
+    for (const { path, position } of securityReviewerAttachments) {
+      await db
+        .insert(t.agentContextDocuments)
+        .values({ agentId: securityReviewer.id, path, position })
+        .onConflictDoNothing();
+    }
+  }
+
+  // pr-quality-rubric skill: public-api.md (0)
+  const prQualityRubricId = skillIdBySlug.get("pr-quality-rubric");
+  if (prQualityRubricId) {
+    await db
+      .insert(t.skillContextDocuments)
+      .values({ skillId: prQualityRubricId, path: "specs/public-api.md", position: 0 })
+      .onConflictDoNothing();
   }
 
   // ---- API Contract Reviewer skills ----
