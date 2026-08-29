@@ -64,14 +64,31 @@ export const s = {
     flexShrink: 0,
     whiteSpace: "nowrap",
   } satisfies CSSProperties,
+  // Fixed-width column so the category text ("specs", "docs", "insights",
+  // "readme", "other" — see messages/en/context.json `sourceRoot.*`) lands
+  // at the same x on every row instead of drifting with word length.
+  // "insights" (8 chars) is the widest of the five, hence 8ch; left-aligned
+  // is the span's default text alignment, so no explicit textAlign needed.
   sourceRootLabel: {
     fontSize: 12,
     fontWeight: 500,
     color: "var(--text-secondary)",
     flexShrink: 0,
     whiteSpace: "nowrap",
+    minWidth: "8ch",
   } satisfies CSSProperties,
-  tokenCount: { fontSize: 11, color: "var(--text-muted)", flexShrink: 0, whiteSpace: "nowrap" } satisfies CSSProperties,
+  // Fixed-width, right-aligned column so the digits (and trailing "t") of
+  // "426t" and "12129t" end at the same x. Token counts run to 5 digits in
+  // this repo, plus the optional "≈" approximation marker rendered inside
+  // this same span — worst case "≈12129t" is 7 characters, hence 7ch.
+  tokenCount: {
+    fontSize: 11,
+    color: "var(--text-muted)",
+    flexShrink: 0,
+    whiteSpace: "nowrap",
+    minWidth: "7ch",
+    textAlign: "right",
+  } satisfies CSSProperties,
   previewBlock: {
     marginTop: 8,
     padding: 10,

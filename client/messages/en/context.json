@@ -17,9 +17,9 @@
     "body": "Clone this repo locally to scan specs/, docs/, and insights/ for project context."
   },
   "sourceRoot": {
-    "specs": "specs/",
-    "docs": "docs/",
-    "insights": "insights/",
+    "specs": "specs",
+    "docs": "docs",
+    "insights": "insights",
     "readme": "readme",
     "other": "other"
   },

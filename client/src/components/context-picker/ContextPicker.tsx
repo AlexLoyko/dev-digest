@@ -243,20 +243,40 @@ function DocumentRow({
       </div>
 
       <div style={s.chipRow}>
-        {doc && <span style={s.sourceRootLabel}>{tContext(`sourceRoot.${doc.root}`)}</span>}
-        {doc?.tokens != null && (
-          <span style={s.tokenCount} title={tContext("tokens", { count: doc.tokens })}>
-            {doc.tokens_approximate ? "≈" : ""}
-            {tContext("tokensCompact", { count: doc.tokens })}
-          </span>
-        )}
-        {showThreatBadge && <Badge color={threatColor(threat)}>{tContext(`threat.${threat}`)}</Badge>}
-        {excluded && <Badge color="var(--crit)">{tContext("excluded")}</Badge>}
-        {isMissing && <Badge color="var(--crit)">{t("missingInRepo")}</Badge>}
+        {/* Category, token count and Preview form a stable three-column
+            block — see s.sourceRootLabel / s.tokenCount for the fixed
+            widths. When `doc` is missing (EC-7 — the attached path no
+            longer exists in the repo) or its token count is unknown, the
+            spans still render at their fixed width with no visible content
+            so every row's Preview button lands in the same column instead
+            of collapsing left; aria-hidden keeps the empty cell silent for
+            assistive tech rather than announcing a blank one. The
+            variable-width badges are rendered after Preview (not between
+            it and the token count) so their presence/absence never shifts
+            Preview's horizontal position. */}
+        <span style={s.sourceRootLabel} aria-hidden={doc ? undefined : true}>
+          {doc ? tContext(`sourceRoot.${doc.root}`) : ""}
+        </span>
+        <span
+          style={s.tokenCount}
+          aria-hidden={doc && doc.tokens != null ? undefined : true}
+          title={doc && doc.tokens != null ? tContext("tokens", { count: doc.tokens }) : undefined}
+        >
+          {doc && doc.tokens != null && (
+            <>
+              {doc.tokens_approximate ? "≈" : ""}
+              {tContext("tokensCompact", { count: doc.tokens })}
+            </>
+          )}
+        </span>
 
         <Button kind="tertiary" size="sm" icon="Eye" active={previewOpen} onClick={onTogglePreview}>
           {tContext("mode.preview")}
         </Button>
+
+        {showThreatBadge && <Badge color={threatColor(threat)}>{tContext(`threat.${threat}`)}</Badge>}
+        {excluded && <Badge color="var(--crit)">{tContext("excluded")}</Badge>}
+        {isMissing && <Badge color="var(--crit)">{t("missingInRepo")}</Badge>}
 
         {isAttached && (
           <span style={{ ...s.reorderGroup, ...reorderGroupRevealStyle(revealed) }}>
