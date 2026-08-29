@@ -240,7 +240,12 @@ export class ContextService {
     paths: string[],
   ): Promise<ContextGetResult> {
     await this.getAgentOrThrow(workspaceId, agentId);
-    await this.validateContextPaths(workspaceId, paths);
+    const currentDocs = await this.container.contextRepo.agentAttachments(agentId);
+    await this.validateContextPaths(
+      workspaceId,
+      paths,
+      new Set(currentDocs.map((d) => d.path)),
+    );
     await this.container.contextRepo.setAgentAttachments(agentId, paths);
     return this.getAgentContext(workspaceId, agentId);
   }
@@ -274,7 +279,12 @@ export class ContextService {
     paths: string[],
   ): Promise<ContextGetResult> {
     await this.getSkillOrThrow(workspaceId, skillId);
-    await this.validateContextPaths(workspaceId, paths);
+    const currentDocs = await this.container.contextRepo.skillAttachments(skillId);
+    await this.validateContextPaths(
+      workspaceId,
+      paths,
+      new Set(currentDocs.map((d) => d.path)),
+    );
     await this.container.contextRepo.setSkillAttachments(skillId, paths);
     return this.getSkillContext(workspaceId, skillId);
   }
@@ -335,17 +345,48 @@ export class ContextService {
     return repos.find((r) => r.clonePath) ?? repos[0];
   }
 
-  /** AC-16 / EC-4: reject the WHOLE request with 400 — and persist nothing —
-   * if any path fails any of three gates. `isSafeContextPath` catches
-   * absolute paths and `..` traversal lexically; `resolveContained` (T3)
-   * additionally resolves symlinks so a planted symlink that escapes the
-   * clone root is rejected too. The third gate enforces EC-4: a document the
-   * scanner flagged with a non-null `excludedReason` (oversize / unreadable)
-   * is excluded "from the list and from injection" per the spec — it must
-   * never be attachable in the first place. An empty `paths` array
-   * (detaching everything) needs no clone to validate against. */
-  private async validateContextPaths(workspaceId: string, paths: string[]): Promise<void> {
+  /** AC-16 / EC-4 / EC-7: validate what the caller is actually ADDING, not
+   * what they are keeping or dropping — a missing-on-disk document (EC-7)
+   * must stay removable even though it can never be re-attached fresh.
+   *
+   * `currentPaths` is the attachment set as persisted BEFORE this write
+   * (passed in by the caller, which already has it in hand from
+   * `agentAttachments`/`skillAttachments`, rather than re-querying it here).
+   * Every path in the incoming `paths` still gets the cheap, synchronous
+   * `isSafeContextPath` lexical check — that's true for retained paths too,
+   * it just never touches the filesystem. Only paths NOT already in
+   * `currentPaths` — genuinely new attachments — go on to the I/O-bound
+   * gates: `resolveContained` (T3; also catches a planted symlink escaping
+   * the clone root) and the EC-4 `excludedReason` check (oversize/unreadable
+   * documents can never be newly attached). A path already attached and
+   * retained skips both — it was validated for containment when first
+   * attached, and its file may have legitimately disappeared since (the bug
+   * this fixes: unticking a since-vanished document must not require it to
+   * re-pass a check it can no longer pass). A path being removed needs no
+   * validation at all — it's simply absent from `paths`.
+   *
+   * All-or-nothing is preserved: any genuinely-new path failing any gate
+   * rejects the WHOLE request with 400 and persists nothing. An empty
+   * `paths` array (detaching everything) short-circuits before any I/O. */
+  private async validateContextPaths(
+    workspaceId: string,
+    paths: string[],
+    currentPaths: ReadonlySet<string>,
+  ): Promise<void> {
     if (paths.length === 0) return;
+
+    for (const path of paths) {
+      if (!isSafeContextPath(path)) {
+        throw new AppError(
+          'invalid_context_path',
+          `Path is not a valid context document reference: ${path}`,
+          400,
+        );
+      }
+    }
+
+    const newPaths = paths.filter((path) => !currentPaths.has(path));
+    if (newPaths.length === 0) return;
 
     const repo = await this.resolveRepoForWorkspace(workspaceId);
     if (!repo?.clonePath) {
@@ -359,14 +400,7 @@ export class ContextService {
     const documents = await this.container.contextRepo.listDocuments(repo.id);
     const byPath = new Map(documents.map((d) => [d.path, d]));
 
-    for (const path of paths) {
-      if (!isSafeContextPath(path)) {
-        throw new AppError(
-          'invalid_context_path',
-          `Path is not a valid context document reference: ${path}`,
-          400,
-        );
-      }
+    for (const path of newPaths) {
       const resolved = await resolveContained(repo.clonePath, path);
       if (resolved === null) {
         throw new AppError(
