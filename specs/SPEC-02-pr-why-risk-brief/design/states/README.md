@@ -5,7 +5,7 @@ Referenced by `../../SPEC-02.md`.
 
 These are **design artboards, not shipped UI**. They show intended behaviour. Each file is a
 self-contained HTML document — open one in a browser to view it, or open `canvas.json` in the
-design-canvas viewer to see all six laid out together. The convenience pointer to the hosted canvas
+design-canvas viewer to see all seven laid out together. The convenience pointer to the hosted canvas
 is `https://claude.ai/code/artifact/9790aa19-0393-416f-bbd8-13efd3e3821d`, but these files are the
 source of record.
 
@@ -13,6 +13,7 @@ source of record.
 
 | File | State | What it shows |
 |---|---|---|
+| `NoBriefYet.dc.html` | 0 · No brief yet | Neutral informational icon treatment, "No brief yet" headline, one line explaining what a brief reads and that it never reads the diff, and a single primary "Generate brief" control in the main content region. No chip, no score ring; the trailing region is present but empty and hidden from assistive technology, with its width reserved. |
 | `Main.dc.html` | 1 · Generating | Spinner in the icon slot, "Generating brief" headline, a chip naming what is being read, shimmer placeholders where the prose will land, regenerate control present but disabled. |
 | `NoAgentRun.dc.html` | 2 · No completed agent run | Risk level drives headline and tint ("Medium risk", warning-toned). A "No review run yet" chip occupies the slot the findings/blockers chip would use. "What" and "why" render as two paragraphs in descending emphasis. No score ring, no cost/token row. Regenerate control active. |
 | `Stale.dc.html` | 3 · Stale, regenerating | The previous brief — verdict headline, prose, score ring and its label — all held at reduced emphasis, behind a full-emphasis chip with a spinner reading "New commits — updating brief". **No regenerate control:** regeneration is already under way. |
@@ -21,20 +22,28 @@ source of record.
 | `EmptyReviewFocus.dc.html` | 6 · Review focus, empty | The review-focus card's standard empty state: centred icon, "Nothing to read first", and a sentence explaining that no file was singled out. |
 | `canvas.json` | — | Artboard layout, per-state titles, and a scope annotation. Not an artboard itself. |
 
-`canvas.json` numbers these 1–6 in that order; the numbering above matches it.
+`canvas.json` numbers these 0–6 in that order; the numbering above matches it.
 
 ## The governing rule
 
-Every state keeps the loaded card's anatomy — a leading status slot, a flexible main column, and a
-trailing slot — so the card does not restructure as it moves between states. Only the contents of
-those regions change. This holds across all six artboards with no exception; `SPEC-02.md` requires it
-as AC-20.
+`canvas.json`'s scope annotation states both rules below; this section says the same thing at more
+length, and the two must stay in agreement.
+
+**One anatomy.** Every state keeps the loaded card's anatomy — a leading status slot, a flexible main
+column, and a trailing slot — so the card does not restructure as it moves between states. Only the
+contents of those regions change. This holds across all seven artboards with no exception;
+`SPEC-02.md` requires it as AC-20.
 
 A slot with nothing to show keeps its footprint rather than collapsing — see the reserved trailing
-region in `Failed.dc.html`. This is the substance of the rule, not a detail of it: an empty flex child
-collapses to zero width, which would let the prose reflow to full width and then jump back the moment
-a later generation succeeds and the score ring appears. Recovery in both failed states is the inline
-"Try again" control alone; no state offers two affordances for one action.
+regions in `NoBriefYet.dc.html` and `Failed.dc.html`. This is the substance of the rule, not a detail
+of it: an empty flex child collapses to zero width, which would let the prose reflow to full width and
+then jump back the moment a brief exists and the score ring appears there.
+
+**One action, one affordance.** The primary action lives inline in the main content region and is
+never duplicated into the trailing region — "Generate brief" in the no-brief state, "Try again" in
+both failed states. An earlier revision of `Failed.dc.html` offered both an inline control and a
+trailing icon control for the same operation; that was removed because it presented assistive
+technology with two differently-named tab stops invoking one action.
 
 ## Provenance
 

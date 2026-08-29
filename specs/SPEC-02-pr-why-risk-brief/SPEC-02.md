@@ -236,6 +236,17 @@ state** — only the content within it changes, so the card never reflows as it 
   Verify: unit — client component test asserting the rendered token volume matches the product's
   existing convention wherever this feature shows one.
 
+- AC-23 (US-1): IF no brief has been generated for the pull request, THEN the system shall present the
+  brief card with its usual anatomy, carrying a neutral informational status treatment, a headline
+  stating that no brief has been generated, one line of explanatory text, and a control offering to
+  generate one, with that control placed in the main content region and the trailing region left
+  present but empty per AC-20. The control sits inline for the same reason recovery does in the failed
+  states: the primary action belongs in the main region, and one action gets one affordance.
+  Verify: unit — client component test with no stored brief and no generation in flight; assert the
+  card renders with all three regions, an informational rather than risk or verdict treatment, the
+  headline and explanatory line, exactly one control offering generation, and that control inside the
+  main content region.
+
 ## Edge cases
 
 - EC-1 (AC-5): Every review-focus entry the model returned was dropped for naming files outside the PR
@@ -504,7 +515,7 @@ whole flow: it changes only which elements the brief card carries and what drive
   without a prior brief, and empty review focus — now have approved artboards, also committed in-repo
   and also read directly. The requirements it flagged (AC-13, AC-16, AC-18, AC-19, EC-1, EC-2, EC-5,
   EC-12) were reconciled against those artboards and amended where they had drifted. Every design
-  source this spec rests on is now first-party and in the repository.
+  source this spec rests on is first-party and in the repository.
 - Q-7: **Closed (2026-08-29) — dissolved by the progressive-card rule.** It asked whether it was
   acceptable that "what" and "why" were generated but unsurfaced on a PR with no agent run. The card
   now always renders and carries them (AC-13, EC-12), so nothing the brief pays for is hidden and the
@@ -523,13 +534,22 @@ whole flow: it changes only which elements the brief card carries and what drive
   reduced emphasis, and a critical-toned indication reading that the brief could not be updated and the
   previous one is being shown replaces the stale state's updating indication, with a retry control
   beneath the prose. Folded into AC-16, which now carries both designed branches. **No state in this
-  feature is now without an approved design.**
+  feature is without an approved design.**
+- Q-10: **Closed (2026-08-29) — designed, and the derivation held.** It recorded that the no-brief-yet
+  state of AC-23 was derived from the failed-without-prior-brief artboard rather than designed. That
+  state now has its own approved artboard, read directly and matching AC-23 as written: the standard
+  card anatomy, a neutral informational status treatment, a headline stating no brief exists, one
+  explanatory line, a single primary control offering generation placed in the main content region, and
+  the trailing region present but empty and holding its footprint. AC-23 needed no amendment. The
+  question existed only because `implementation-planner` found the state named in this spec's prose and
+  diagram with no acceptance criterion behind it — a gap the spec review gate could not see, because it
+  checks acceptance criteria against each other and never against the spec's own prose.
 
 ## Traceability
 
 | US | AC | EC / NFR | Verify level |
 |----|----|----------|--------------|
-| US-1 | AC-1, AC-2, AC-3, AC-15, AC-18, AC-20 | EC-3, EC-11, NFR-1, NFR-3, NFR-7 | e2e, integration, unit |
+| US-1 | AC-1, AC-2, AC-3, AC-15, AC-18, AC-20, AC-23 | EC-3, EC-11, NFR-1, NFR-3, NFR-7 | e2e, integration, unit |
 | US-2 | AC-4, AC-5, AC-17, AC-21 | EC-1, EC-7, EC-10, NFR-8 | unit |
 | US-3 | AC-6 | EC-2, EC-6, NFR-4, NFR-5 | unit, manual |
 | US-4 | AC-7, AC-8, AC-16 | EC-2, EC-8, EC-9, NFR-3 | integration, unit |
