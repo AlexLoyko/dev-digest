@@ -781,6 +781,22 @@ export class ReviewRunExecutor {
 
     specDocs.push(...duplicates);
 
+    // Summary line for the Live Log — every other context source (callers
+    // digest, repo map, file rank) reports itself on the happy path; project
+    // context was previously silent unless something went wrong (the WARN
+    // lines above name WHICH document went missing, but not how the overall
+    // attempt went). Base metric is always "N spec(s) injected" (read
+    // count, even when 0); missing/rejected/duplicate are appended only when
+    // non-zero so a clean run stays noise-free.
+    const counts = { read: 0, missing: 0, rejected: 0, duplicate: 0 };
+    for (const doc of specDocs) counts[doc.status]++;
+    const summaryParts = [`${counts.read} spec(s) injected`];
+    if (counts.missing > 0) summaryParts.push(`${counts.missing} missing`);
+    if (counts.rejected > 0) summaryParts.push(`${counts.rejected} rejected`);
+    if (counts.duplicate > 0)
+      summaryParts.push(`${counts.duplicate} duplicate`);
+    runLog.info(`project context: ${summaryParts.join(", ")}`);
+
     const commitSha = await this.container.git.currentHead({
       owner: repo.owner,
       name: repo.name,
