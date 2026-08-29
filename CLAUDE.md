@@ -61,6 +61,7 @@ cd reviewer-core && npm run typecheck
 
 ## Read When
 
+- **Writing or reading a specification** → read `specs/README.md`
 - **Modifying the review pipeline** → read `reviewer-core/docs/pipeline.md`
 - **Adding or changing an API route** → read `server/docs/api-contracts.md`
 - **Changing DI wiring, adapters, or secrets** → read `server/docs/architecture.md`

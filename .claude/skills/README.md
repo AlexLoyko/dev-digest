@@ -18,6 +18,7 @@ Reusable AI skills that provide specialized knowledge and workflows. Canonical l
 | [mermaid-diagram](mermaid-diagram/SKILL.md) | Shared | Mermaid diagrams in markdown (flowcharts, sequence, ERD, …) |
 | [frontend-architecture](frontend-architecture/SKILL.md) | Frontend | Code organization decisions for React 19 + Next.js 15 — folder structure, feature organization, component splitting, constants/utils/business-logic placement, naming conventions, Server/Client boundary |
 | [engineering-insights](engineering-insights/SKILL.md) | All modules | Records non-obvious session discoveries into per-module LEARNINGS.md files |
+| [workflow-retro](workflow-retro/SKILL.md) | Agent system | **Manual only.** Post-mortem of a multi-agent run — cost, launch order, duplicated work, proposed edits to agent/skill definitions. Reports and ledger in `docs/retro/` |
 
 ## What Are Skills?
 

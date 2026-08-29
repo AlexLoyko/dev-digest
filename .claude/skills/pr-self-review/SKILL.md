@@ -151,26 +151,41 @@ Changed files diff:
 
 Collect findings arrays from all sub-agents. Deduplicate on `file + line`: if two skills report the same `file:line`, keep the one with higher severity; if equal severity, merge `issue` fields.
 
-### Step 6 — Contract sync check
+### Step 6 — Deterministic structural checks
 
 Run separately from sub-agents:
 
 ```bash
-diff -r client/src/vendor/shared/contracts/ server/src/vendor/shared/contracts/
+./scripts/arch-check.sh
 ```
 
-If any differences found → add a CRITICAL finding:
+This covers four mechanical rules — `no-process-env-outside-allowlist`, `reviewer-core-zero-io`,
+`adapters-built-only-in-container`, and `contracts-in-sync` — and costs nothing.
+
+**Do not run a raw `diff -r` on the two contract trees.** The client copy imports `'./findings'`
+where the server copy imports `'./findings.js'`, across every file; a raw diff therefore reports all
+seven contracts as divergent on every single push, forever, which trains everyone to ignore the
+finding. `arch-check.sh` normalises that vendoring transform before comparing, so what it reports is
+real drift.
+
+For each violation the script reports → add a CRITICAL finding:
 
 ```json
 {
   "file": "vendor/shared/contracts/[filename]",
   "line": 0,
   "severity": "CRITICAL",
-  "skill": "pr-self-review",
-  "issue": "Contract file differs between client and server vendor copies",
+  "skill": "arch-check",
+  "issue": "Contract file differs between client and server vendor copies (beyond the .js import transform)",
   "fix": "Sync the contract file to both client/src/vendor/shared/contracts/ and server/src/vendor/shared/contracts/"
 }
 ```
+
+**Known pre-existing drift.** Five contracts are already divergent — `eval-ci.ts`, `knowledge.ts`,
+`platform.ts`, `productionize.ts`, `trace.ts` — with the server copy ahead (it carries
+`AgentManifest`, the `openrouter` provider, and stricter validators in `knowledge.ts`). Report these
+as pre-existing rather than attributing them to the current diff, and only treat a contract as a
+diff-blocking CRITICAL when **this** diff touched one side without the other.
 
 ### Step 6.5 — Test coverage gate
 
