@@ -1,0 +1,24 @@
+{
+  "name": "PR brief renders seeded prose, a risk, and a review-focus entry on the Overview tab, and never shows the generating headline",
+  "description": "AC-1: open the seeded repo's PR #482 (default tab is 'overview' — no tab click needed) and confirm the stored brief (server/src/db/seed.ts's seedBrief, head_sha pinned to the PR's own headSha so it reads non-stale) renders its 'what' prose in the PR brief card, a risk title ('Auth surface touched') in the Risk areas section inside the Intent card, and a review-focus file location ('src/config.ts:12') in the Review focus card. Final assertion is a `get text body` step with `stdoutExcludes` against brief.json's card.generating.headline ('Generating brief') — this proves the card never enters the generating state for a non-stale brief, NOT that no model call occurred: a browser flow cannot observe network calls the server made. The zero-model-call guarantee (AC-1's 'without making a model call') is proved by server/test/brief-routes.it.test.ts against a call-counting stub, not here. Read-only seeded data throughout. Assumes a freshly-seeded DB where acme/payments-api is the first repo and PR #482 (guaranteed by e2e-web.yml / scripts/e2e.sh).",
+  "steps": [
+    { "cmd": ["open", "{BASE}/"], "label": "load the app root" },
+    { "cmd": ["wait", "--text", "Pull Requests"], "label": "root redirect settles on the PR list heading (mirrors 01-app-boot's DOM-polled assertion, unlike --load networkidle which is prone to missing an already-settled fetch when a prior flow left the browser mid-navigation)" },
+    { "cmd": ["wait", "--url", "/pulls"], "label": "land on the PR list" },
+    { "cmd": ["wait", "--text", "Add rate limiting to public API endpoints"], "label": "seeded PR title row is visible" },
+    { "cmd": ["find", "text", "Add rate limiting to public API endpoints", "click"], "label": "open the PR row" },
+    { "cmd": ["wait", "--url", "/pulls/482"], "label": "navigate to the PR detail route (defaults to the Overview tab)" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "PR detail data settles" },
+    {
+      "cmd": ["wait", "--text", "Adds a token-bucket rate limiter to the public API middleware chain, applying it to /api/public/* routes and returning 429 with a Retry-After header when a client exceeds the limit."],
+      "label": "seeded brief 'what' prose renders in the brief card (AC-1)"
+    },
+    { "cmd": ["wait", "--text", "Auth surface touched"], "label": "seeded risk title renders in the Intent card's Risk areas section" },
+    { "cmd": ["wait", "--text", "src/config.ts:12"], "label": "seeded review-focus file location renders in the Review focus card" },
+    {
+      "cmd": ["get", "text", "body"],
+      "label": "page text never shows the generating-state headline for this non-stale seeded brief — proves the card never enters the generating state, NOT that no model call occurred (see server/test/brief-routes.it.test.ts for that guarantee)",
+      "assert": { "stdoutExcludes": "Generating brief" }
+    }
+  ]
+}
