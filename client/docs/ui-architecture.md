@@ -71,3 +71,18 @@ const t = await getTranslations("pulls")
 ```
 
 Message files live in `messages/`. Never hardcode English strings directly in JSX.
+
+## Shared feature components across pages
+
+<!-- updated from: client/src/components/context-picker/ContextPicker.tsx -->
+
+Most components are colocated under one route's `_components/`. Some are mounted by more than one
+page or tab instead — `src/components/context-picker/ContextPicker.tsx` is the example: it is the
+Project Context attach/detach/reorder UI, and both the Agent Editor's Context tab and the Skill
+Editor's Context tab mount the same component rather than each implementing their own. It takes a
+`namespace: "agents" | "skills"` prop so tab-specific copy (heading, helper text, attach/detach
+labels) resolves from the right `next-intl` catalogue, while document-catalog labels that do not vary
+by mounting page (source root, threat level, token count) always resolve from the shared `context`
+catalogue. Reordering ships as move-up/move-down buttons with `aria-label`s plus an
+`aria-live="polite"` announcement region, not drag-only — drag-and-drop alone is not
+keyboard-operable.

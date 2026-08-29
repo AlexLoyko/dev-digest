@@ -43,6 +43,45 @@ Each page, its data sources, and TanStack Query keys.
 **Query key:** `["agents"]`
 **Actions:** Create / edit / delete agents. All mutations invalidate `["agents"]`.
 
+## `/repos/:repoId/context` — Project Context
+
+<!-- updated from: client/src/app/repos/[repoId]/context/page.tsx, client/src/app/repos/[repoId]/context/_components/ProjectContextView/ProjectContextView.tsx, client/src/lib/hooks/context-files.ts -->
+
+**Component:** `app/repos/[repoId]/context/page.tsx` (client) → delegates to
+`_components/ProjectContextView`
+**Data:**
+- `GET /repos/:id/context` — discovered documents + scan status
+- `GET /repos/:id/context/document?path=` — one document's full text, fetched only once selected
+**Query keys:** `["context", repoId]`, `["context", repoId, "document", path]`
+**Behavior:** Read-only — no edit/upload/delete affordance anywhere in this tree (AC-2). No local
+clone → an explanatory empty state, no documents listed, no attachment possible (EC-1). Document
+bodies render through the shared `Markdown` primitive, never raw HTML. The list is filterable and
+capped for display so a repository with thousands of matching documents stays interactive (EC-10).
+**Actions:** "Re-index" → `POST /repos/:id/context/reindex`, invalidates `["context", repoId]` on
+success.
+
+## Context tabs — Agent & Skill editors
+
+<!-- updated from: client/src/app/agents/[id]/_components/AgentEditor/_components/ContextTab/ContextTab.tsx, client/src/app/skills/[id]/_components/SkillEditor/_components/ContextTab/ContextTab.tsx, client/src/lib/hooks/context-attachments.ts -->
+
+Both the Agent Editor (`app/agents/[id]`) and the Skill Editor (`app/skills/[id]`) gained a Context
+tab (`?tab=context`) mounting the shared `ContextPicker` (`src/components/context-picker/`) against
+the active repo's document catalog (`useContextFiles`, the same hook and query key as the Project
+Context page above).
+
+**Data:**
+- Agent tab — `GET /agents/:id/context` / `PUT /agents/:id/context`, query key
+  `["agent-context", agentId]`
+- Skill tab — `GET /skills/:id/context` / `PUT /skills/:id/context`, query key
+  `["skill-context", skillId]`, plus `GET /skills/:id/context/preview`, query key
+  `["skill-context-preview", skillId]` — invalidated alongside `["skill-context", skillId]` on every
+  attach/detach so the preview can never go stale relative to the current attachment set (AC-9)
+**Behavior:** The skill tab's preview panel renders the server's actual `## Project context`
+serialization inside a `<pre>` as a plain text node — never through Markdown, never
+`dangerouslySetInnerHTML` — so a repository-controlled document cannot render as markup even in the
+preview. A document that was attached but no longer resolves in the clone is shown "missing in repo"
+(EC-7) rather than being silently dropped from the list.
+
 ## `/settings` — Settings
 
 **Component:** `app/settings/page.tsx` (client)

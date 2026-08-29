@@ -15,26 +15,25 @@ cd e2e && npm test
 
 ## Flow Step Format
 
+<!-- updated from: e2e/run.ts, e2e/docs/flows.md -->
+
+Each flow is `specs/NN-name.flow.json`. Steps are `{ "cmd": string[] }` arrays passed verbatim to
+`agent-browser` — not `{command, value}` pairs. `run.ts` auto-discovers every `*.flow.json` file in
+`specs/` and runs them in lexical filename order; there is no separate registration step and no
+`flows/` directory.
+
 ```json
-{ "command": "--url", "value": "http://localhost:3000" }
-{ "command": "--text", "value": "Expected text on page" }
-{ "command": "find",  "value": "CSS selector or label" }
+{ "cmd": ["open", "{BASE}/"] }
+{ "cmd": ["wait", "--text", "Expected text on page"] }
+{ "cmd": ["find", "role", "button", "click", "--name", "Context"] }
 ```
 
-Steps are executed sequentially. A flow fails on the first failing step.
+Steps are executed sequentially. A flow fails on the first failing step. Full format, an optional
+`assert.stdoutIncludes` / `assert.stdoutExcludes`, and debugging notes: `e2e/docs/flows.md`.
 
-## Coverage (7 flows)
+## Coverage
 
-| Flow | What it verifies |
-|------|-----------------|
-| `boot` | App loads, no crash |
-| `repo-list` | Repos page renders seeded repo |
-| `repo-detail` | PR list loads for a repo |
-| `agents` | Agents page CRUD renders |
-| `findings` | Findings render on PR detail |
-| `diff` | Diff view loads |
-| `onboarding` | Onboarding wizard flow |
-| `settings` | Settings page renders |
+See `e2e/specs/coverage.md` for the current flow list and what each one verifies.
 
 ## Do Not Touch Without Reading
 

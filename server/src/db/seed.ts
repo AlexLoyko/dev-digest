@@ -1,12 +1,21 @@
 import "dotenv/config";
 import { createDb, type Db } from "./client.js";
 import * as t from "./schema.js";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { homedir } from "node:os";
 import { join, isAbsolute, resolve } from "node:path";
 import { mkdir, writeFile, access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { simpleGit } from "simple-git";
+import type {
+  PromptAssembly,
+  RunLogLine,
+  RunTrace,
+  SpecRead,
+  ToolCall,
+} from "@devdigest/shared";
+import { buildProjectContextSection, wrapUntrusted } from "../platform/prompt.js";
+import { buildRunTrace } from "../platform/trace-builder.js";
 
 /**
  * Seed the starter's demo data. Idempotent: re-running upserts the default
@@ -129,6 +138,17 @@ This file lives under node_modules and must never be treated as a context
 document.
 `;
 
+// Shared between the "General/Security/Test Quality Reviewer" agent seed and
+// the seeded run-trace below, so the trace's system prompt matches the agent
+// it is attributed to instead of drifting from a second hand-written copy.
+const SECURITY_REVIEWER_SYSTEM_PROMPT =
+  "You are a security-focused PR reviewer. Examine the diff for hardcoded secrets, injection, SSRF, and untrusted input reaching a dangerous sink. Return at most 5 findings ranked by severity. Cite exact file:line.";
+
+// Shared between the seeded review row and the seeded run-trace's raw_output,
+// for the same reason.
+const SEED_REVIEW_SUMMARY =
+  "Solid middleware approach, but a Stripe secret key is committed in plaintext and the user-list endpoint introduces an N+1 query under the new limiter.";
+
 /**
  * Idempotent fixture git repo for the seeded acme/payments-api demo, so
  * Project Context has real files to scan end-to-end.
@@ -139,9 +159,14 @@ document.
  * attachment below but deliberately NOT written here — that mismatch is
  * the fixture for the "missing in repo" badge (EC-7).
  */
-async function ensureFixtureRepo(cloneDir: string): Promise<string> {
+async function ensureFixtureRepo(
+  cloneDir: string,
+): Promise<{ path: string; commitSha: string }> {
   const repoDir = join(cloneDir, "acme", "payments-api");
-  if (await pathExists(join(repoDir, ".git"))) return repoDir;
+  if (await pathExists(join(repoDir, ".git"))) {
+    const commitSha = (await simpleGit(repoDir).revparse(["HEAD"])).trim();
+    return { path: repoDir, commitSha };
+  }
 
   await mkdir(join(repoDir, "specs"), { recursive: true });
   await mkdir(join(repoDir, "docs"), { recursive: true });
@@ -172,7 +197,8 @@ async function ensureFixtureRepo(cloneDir: string): Promise<string> {
     if (!(await pathExists(join(repoDir, ".git")))) throw err;
   }
 
-  return repoDir;
+  const commitSha = (await simpleGit(repoDir).revparse(["HEAD"])).trim();
+  return { path: repoDir, commitSha };
 }
 
 export async function seed(
@@ -224,7 +250,8 @@ export async function seed(
   }
 
   // ---- demo repo (acme/payments-api) ----
-  const fixtureRepoPath = await ensureFixtureRepo(cloneDir);
+  const { path: fixtureRepoPath, commitSha: fixtureCommitSha } =
+    await ensureFixtureRepo(cloneDir);
 
   let [repo] = await db
     .select()
@@ -345,8 +372,7 @@ export async function seed(
         prId: pr!.id,
         kind: "review",
         verdict: "request_changes",
-        summary:
-          "Solid middleware approach, but a Stripe secret key is committed in plaintext and the user-list endpoint introduces an N+1 query under the new limiter.",
+        summary: SEED_REVIEW_SUMMARY,
         score: 61,
         model: "seed",
       })
@@ -401,8 +427,7 @@ export async function seed(
         "Flags secrets, injection, and untrusted-input sinks before merge.",
       provider: "openai",
       model: "gpt-4.1",
-      systemPrompt:
-        "You are a security-focused PR reviewer. Examine the diff for hardcoded secrets, injection, SSRF, and untrusted input reaching a dangerous sink. Return at most 5 findings ranked by severity. Cite exact file:line.",
+      systemPrompt: SECURITY_REVIEWER_SYSTEM_PROMPT,
       enabled: true,
       version: 1,
       createdBy: userId,
@@ -697,6 +722,165 @@ Suggest adding a test case with the specific scenario that would exercise the un
       .insert(t.skillContextDocuments)
       .values({ skillId: prQualityRubricId, path: "specs/public-api.md", position: 0 })
       .onConflictDoNothing();
+  }
+
+  // ---- seeded run + run_traces (drives the "Project context — attached
+  // specs (untrusted)" segment in the run drawer, AC-18) ----
+  // Idempotency key: a run_traces row whose specs_commit_sha equals this
+  // fixture's (deterministic, stable across seed runs — see
+  // ensureFixtureRepo). NOT `reviews.run_id` — on a workspace that predates
+  // this fixture, the seeded review's run_id can already be non-null from
+  // unrelated history, which would make an "is it null" check false-negative
+  // and silently skip seeding the trace.
+  const [seedReview] = await db
+    .select()
+    .from(t.reviews)
+    .where(and(eq(t.reviews.prId, pr!.id), eq(t.reviews.model, "seed")));
+
+  const [existingSeedTrace] = await db
+    .select({ runId: t.runTraces.runId })
+    .from(t.runTraces)
+    .where(sql`${t.runTraces.trace} ->> 'specs_commit_sha' = ${fixtureCommitSha}`);
+
+  if (!existingSeedTrace && seedReview && securityReviewer) {
+    // Read = the two documents actually written to the fixture repo above;
+    // missing = specs/deleted-doc.md, attached but deliberately absent on
+    // disk (EC-7) — kept consistent with the on-disk fixture state.
+    const specsRead: SpecRead[] = [
+      {
+        path: "specs/security-baseline.md",
+        tokens: Math.ceil(FIXTURE_SECURITY_BASELINE_MD.length / 4),
+        tokens_approximate: true,
+        status: "read",
+      },
+      {
+        path: "specs/public-api.md",
+        tokens: Math.ceil(FIXTURE_PUBLIC_API_MD.length / 4),
+        tokens_approximate: true,
+        status: "read",
+      },
+      {
+        path: "specs/deleted-doc.md",
+        tokens: 0,
+        tokens_approximate: false,
+        status: "missing",
+      },
+    ];
+
+    // Built the same way the runtime does (reviewer-core's
+    // buildProjectContextSection, re-exported via platform/prompt.ts) rather
+    // than hand-written, so the drawer renders the exact delimiter format a
+    // real run produces. NOTE: this matches assemblePrompt's `assembly.specs`
+    // field exactly — reviewer-core/src/prompt.ts sets `specs: specsBlock`
+    // with NO `## Project context` heading; the heading is UI-only (the
+    // `trace.prompt.specs` label in runs.json), added when assemblePrompt
+    // composes the full `user` message, not stored in prompt_assembly.specs.
+    const specsBlock = buildProjectContextSection([
+      { path: "specs/security-baseline.md", text: FIXTURE_SECURITY_BASELINE_MD },
+      { path: "specs/public-api.md", text: FIXTURE_PUBLIC_API_MD },
+    ]);
+
+    const diffExcerpt =
+      "diff --git a/src/config.ts b/src/config.ts\n" +
+      "index 1111111..2222222 100644\n" +
+      "--- a/src/config.ts\n" +
+      "+++ b/src/config.ts\n" +
+      "@@ -10,3 +10,3 @@\n" +
+      "-const STRIPE_KEY = readSecret(\"stripe\");\n" +
+      "+const STRIPE_KEY = \"sk_live_51H8xREDACTEDEXAMPLE\";\n";
+
+    const promptAssembly: PromptAssembly = {
+      system: SECURITY_REVIEWER_SYSTEM_PROMPT,
+      skills: null,
+      memory: null,
+      specs: specsBlock ?? null,
+      callers: null,
+      repo_map: null,
+      pr_description: pr!.body ?? null,
+      user: [
+        specsBlock ? `## Project context\n${specsBlock}` : null,
+        `## Diff to review\n${wrapUntrusted("diff", diffExcerpt)}`,
+      ]
+        .filter((s): s is string => s !== null)
+        .join("\n\n"),
+    };
+
+    const toolCalls: ToolCall[] = [
+      { tool: "read_file", args: "specs/security-baseline.md", meta: null, ms: 42 },
+      { tool: "read_file", args: "specs/public-api.md", meta: null, ms: 58 },
+    ];
+
+    const log: RunLogLine[] = [
+      { t: "00.00", kind: "info", msg: "Starting review run for PR #482" },
+      { t: "00.42", kind: "tool", msg: "Read specs/security-baseline.md" },
+      { t: "01.00", kind: "tool", msg: "Read specs/public-api.md" },
+      { t: "07.91", kind: "result", msg: "Review complete: score 61, 2 findings" },
+    ];
+
+    const trace: RunTrace = {
+      ...buildRunTrace({
+        config: {
+          agent: "Security Reviewer",
+          provider: "openai",
+          model: "gpt-4.1",
+          pr: 482,
+          source: "local",
+        },
+        stats: {
+          duration_ms: 8200,
+          tokens_in: 3400,
+          tokens_out: 620,
+          cost_usd: 0.0412,
+          findings: 2,
+          grounding: "2/2 passed",
+        },
+        promptAssembly,
+        toolCalls,
+        rawOutput: SEED_REVIEW_SUMMARY,
+        memoryPulled: [],
+        specsRead,
+        log,
+      }),
+      // buildRunTrace's BuildTraceInput has no specs_commit_sha slot (that
+      // file is out of scope here — owned by T12) so it is set on the
+      // already-validated object, not threaded through the builder.
+      specs_commit_sha: fixtureCommitSha,
+    };
+
+    const [agentRun] = await db
+      .insert(t.agentRuns)
+      .values({
+        workspaceId,
+        agentId: securityReviewer.id,
+        prId: pr!.id,
+        provider: "openai",
+        model: "gpt-4.1",
+        durationMs: 8200,
+        tokensIn: 3400,
+        tokensOut: 620,
+        costUsd: 0.0412,
+        status: "done",
+        source: "local",
+        findingsCount: 2,
+        grounding: "2/2 passed",
+        score: 61,
+        blockers: 1,
+      })
+      .returning();
+
+    await db
+      .insert(t.runTraces)
+      .values({ runId: agentRun!.id, trace })
+      .onConflictDoNothing();
+
+    // Point the seeded review at this new run. May overwrite a stale
+    // run_id from unrelated pre-existing history (see the idempotency-key
+    // comment above) — that is intentional, so the drawer's findings and
+    // the trace's specs_read/prompt_assembly agree with each other.
+    await db
+      .update(t.reviews)
+      .set({ runId: agentRun!.id })
+      .where(eq(t.reviews.id, seedReview.id));
   }
 
   // ---- API Contract Reviewer skills ----

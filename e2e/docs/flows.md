@@ -1,75 +1,90 @@
 # E2E Flows
 
+<!-- updated from: e2e/run.ts, e2e/lib/assert.ts, e2e/specs/*.flow.json, e2e/README.md -->
+
 How to write, run, and debug agent-browser flow specs.
 
 ## What is agent-browser
 
-A CLI tool that executes deterministic browser flows defined as JSON step sequences. No LLM, no Playwright, no API keys. Install once:
+A CLI tool ([Vercel **agent-browser**](https://github.com/vercel-labs/agent-browser)) that drives a
+real Chrome via CDP. No Playwright, no LLM, no API key. Install once:
 
 ```bash
 npm i -g agent-browser && agent-browser install
 ```
 
-## Flow File Format
+## Flow file format
 
-Each flow is a JSON file in `e2e/flows/`:
+Each flow is `e2e/specs/NN-name.flow.json`. `run.ts` auto-discovers every `*.flow.json` file in
+`specs/` and runs them in **lexical filename order** — the `NN-` prefix is what controls run order;
+there is no separate registration step, and no `flows/` directory.
 
-```json
+```jsonc
 {
-  "name": "repo-list",
-  "description": "Repos page renders seeded repo",
+  "name": "App boots and lands on the seeded repo's PR list",
   "steps": [
-    { "command": "--url",  "value": "http://localhost:3000" },
-    { "command": "--text", "value": "Repositories" },
-    { "command": "find",   "value": "[data-testid='repo-card']" },
-    { "command": "--text", "value": "acme/payments-api" }
+    { "cmd": ["open", "{BASE}/"],         "label": "load the app root" },
+    { "cmd": ["wait", "--url", "/pulls"], "label": "root redirects to PRs" },
+    { "cmd": ["wait", "--text", "#482"],  "label": "seeded PR row visible" }
   ]
 }
 ```
 
-## Available Commands
+- Each step's `cmd` is an **array of arguments** passed verbatim to `agent-browser` — not a
+  `{ "command": ..., "value": ... }` pair.
+- `{BASE}` is substituted with `E2E_BASE_URL` (default `http://localhost:3000`).
+- A non-zero exit from `agent-browser` fails the step and the flow, so `wait --text` / `wait --url`
+  **are** the assertions — they time out and exit non-zero if the condition never holds.
+- `label` is optional (falls back to the joined `cmd`) and is used only in console output.
+- An optional `"assert"` object adds a substring check on the command's stdout:
+  `{ "stdoutIncludes": "…" }` and/or `{ "stdoutExcludes": "…" }`. `get text <selector>` steps use
+  this to assert page text does or does not contain a string — e.g. asserting no "Upload", "Delete",
+  or "Edit" control renders on a read-only page.
+- Locators are deterministic only (`--url`, `--text`, `find role|text|label`). The AI `chat` command
+  is never used, so runs are stable and require no API key.
 
-| Command | What it does |
-|---------|-------------|
-| `--url` | Navigate to URL. Waits for page load. |
-| `--text` | Assert text exists somewhere on the page. Fails if not found within timeout. |
-| `find` | Assert element exists by CSS selector or accessible label. |
-| `click` | Click element by CSS selector. |
-| `--wait` | Wait N milliseconds (use sparingly). |
+## Adding a new flow
 
-Steps execute sequentially. First failing step fails the flow immediately.
-
-## Adding a New Flow
-
-1. Create `e2e/flows/<name>.json` with the steps
-2. Register it in `e2e/run.ts` flows array
-3. Run locally against a seeded stack: `cd e2e && npm test`
+1. Create `e2e/specs/NN-name.flow.json`, picking `NN` after the highest existing prefix. No
+   registration step — `run.ts` discovers it automatically by scanning `specs/`.
+2. Write steps as `agent-browser` command arrays; prefer `wait --text` / `wait --url` as the
+   assertion itself over a separate `find` plus a manual check.
+3. Run it locally against a seeded stack (below) and confirm it passes before committing.
 
 **Rules:**
-- Flows must be deterministic — same seed data, same result every time
-- Do not depend on dynamic content (timestamps, generated IDs in text assertions)
-- Use `data-testid` attributes for `find` commands where possible
-- Keep flows independent — each flow starts from scratch (no shared state between flows)
+- Flows must be deterministic — same seed data, same result every time.
+- Do not depend on dynamic content (timestamps, generated IDs) in text assertions.
+- Keep flows independent — each flow opens its own pages; do not rely on state a prior flow left
+  behind. Flows run in filename order inside one shared browser session (the agent-browser daemon
+  keeps the page between invocations), but a flow's assertions should hold regardless of what ran
+  before it.
+- Target only routes and seeded data that require no LLM call — no flow should trigger a real model
+  request.
 
-## Selectors to Prefer (in order)
-
-1. `data-testid="..."` — most stable, add to components if missing
-2. ARIA role + label: `[role="button"][aria-label="Run review"]`
-3. CSS class only as last resort
-
-## Running Locally
+## Running locally
 
 ```bash
 # Against a running stack (fastest for development)
 ./scripts/dev.sh          # in another terminal
 cd e2e && npm test
 
-# Hermetic (isolated stack, no side effects)
+# Hermetic (isolated stack, no side effects on your dev DB)
 ./scripts/e2e.sh
 ```
 
-## Debugging a Failing Flow
+See `e2e/README.md` for the precondition that makes the hermetic runner the safer default (flows that
+assume the seeded demo repo is the *first* repo need a freshly-seeded DB with nothing else imported)
+and the full list of env var knobs.
 
-agent-browser outputs each step result with a pass/fail indicator. A `--text` failure shows what text was actually found on the page. A `find` failure shows which selector did not match.
+## Debugging a failing flow
 
-To debug interactively: run the app (`./scripts/dev.sh`), open the page in a browser manually, and verify the text/selector before adding it to a flow.
+`run.ts` prints a `✓`/`✗` per step as it runs. On the first failing step it writes a screenshot to
+`e2e/test-results/<flow-id>-fail.png` (git-ignored; uploaded as a CI artifact by
+`.github/workflows/e2e-web.yml`) and stops the flow. A `wait --text` failure means the expected text
+never appeared within the timeout; a `find` failure means the selector/locator never matched. To
+debug interactively: run the app (`./scripts/dev.sh`), open the page in a real browser, and verify the
+text/selector by hand before adding it to a flow.
+
+## Coverage
+
+See `e2e/specs/coverage.md` for the current flow list and what each one verifies.

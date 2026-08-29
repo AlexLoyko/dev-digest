@@ -15,6 +15,17 @@ What is covered, what is not, and why.
 | `onboarding` | `flows/onboarding.json` | Onboarding wizard loads and first step renders |
 | `settings` | `flows/settings.json` | Settings page loads, provider selector visible |
 | `project-context` | `specs/08-project-context.flow.json` | Project Context: seeded document (`specs/public-api.md`) renders read-only with its H1 body; page text excludes any Upload/Delete/Edit control (AC-2); re-scan settles to the "files indexed" status line, not the spinner; second seeded repo (`acme/docs-portal`, null clone path) shows the not-cloned empty state. Does **not** cover the root-only-clone empty-state leg (EC-2) — no seeded repo is cloned with zero matching specs/docs/insights files. |
+| `context-tabs-and-trace` | `specs/09-context-tabs-and-trace.flow.json` | **Partially passing — see note below.** Agent Context tab: seeded attachments (`security-baseline.md`, `public-api.md`, `deleted-doc.md`) render, "missing in repo" badge appears for the deliberately-deleted fixture (EC-7), footer token-total line renders. Skill Context tab: the "SERIALIZES AS" preview panel contains the real `## Project context` heading and the `<untrusted source="spec:` delimiter, scoped to the panel's own `pre.mono` element (AC-9). Run drawer leg does not currently pass — see below. |
+
+<!-- updated from: e2e/specs/09-context-tabs-and-trace.flow.json, docs/plans/project-context.run.md -->
+
+### `09-context-tabs-and-trace` — known-failing leg
+
+The run-drawer leg (leg 3) reproducibly fails: after expanding "Prompt assembly" in the run drawer,
+the "Project context — attached specs (untrusted)" segment label does not render, even though the
+seeded run's `prompt_assembly.specs` is populated. Root cause is unresolved as of this writing. Legs 1
+(agent Context tab) and 2 (skill Context tab preview) pass. Treat this flow as **partially passing**,
+not green, until the render gap is diagnosed and fixed.
 
 ## What Is Not Covered
 

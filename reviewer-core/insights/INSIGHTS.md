@@ -19,6 +19,8 @@ See also: `insights/gotchas.md` for known quirks at project start.
 
 2026-06-22 — `INJECTION_GUARD` already names "derived intent/scope" as untrusted content. Do NOT add new text about intent to the guard — it would duplicate the existing coverage and bloat the system prompt on every review. ref: reviewer-core/src/prompt.ts:16
 
+2026-08-28 — `PromptAssembly.specs` (persisted into `RunTrace.prompt_assembly.specs`) never contains the `## Project context` heading — `assemblePrompt` builds `specsBlock` via `buildProjectContextSection` (delimited blocks only) and stores THAT in `assembly.specs`; the heading is prepended only when the block is spliced into the `user` message string (`## Project context\n${specsBlock}`), which is never persisted as a separate field. Any code or UI that expects `assembly.specs` / `trace.prompt_assembly.specs` to start with the heading is wrong — the run drawer's "Project context — attached specs (untrusted)" text is a client-only label (`client/messages/en/runs.json`'s `trace.prompt.specs`) rendered next to the block, not part of it. This distinction has already tripped up agents working on the project-context feature. ref: reviewer-core/src/prompt.ts:143-163
+
 ## Tool & Library Notes
 
 ## Recurring Errors & Fixes

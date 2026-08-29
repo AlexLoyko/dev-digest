@@ -95,6 +95,33 @@ After filtering, recompute the overall `score` based on remaining findings and t
 
 **Why this exists:** LLMs hallucinate line numbers and quotes. Without grounding, findings point to code that does not exist in the diff. The gate is unconditional — it runs even if the LLM returns perfectly valid JSON.
 
+## Project context (`specs`)
+
+<!-- updated from: reviewer-core/src/prompt.ts, reviewer-core/src/index.ts, server/src/platform/prompt.ts -->
+
+`PromptParts.specs` (and `ReviewInput.specs`) is `Array<{ path: string; text: string }>` — not a bare
+`string[]`. Each entry's `path` becomes the `source="spec:<path>"` label on its own `wrapUntrusted`
+block, so the model — and anyone reading the run trace — can see which document a claim came from.
+
+`buildProjectContextSection(specs)` builds the `## Project context` body: it filters out any entry
+whose `text` is blank, wraps each remaining one with `wrapUntrusted('spec:' + path, text)`, and joins
+them. It returns `undefined` (not an empty string) once nothing is left, so `assemblePrompt` omits the
+`## Project context` heading entirely for an empty or all-blank set — never emits an empty section.
+
+`buildProjectContextSection` is exported from `reviewer-core`'s package entry point (`src/index.ts`)
+and re-exported through `server/src/platform/prompt.ts`, the server's mandated prompt-assembly import
+shim. The server's skill Context-tab preview endpoint (`GET /skills/:id/context/preview`) calls this
+same function to build its preview text, so the preview a configurator sees and what a real run
+injects can never drift apart.
+
+**The `## Project context` heading is not part of `PromptAssembly.specs`.** `assemblePrompt` adds the
+heading only when composing the final `user` message (`## Project context\n${specsBlock}`);
+`assembly.specs` — which is what `RunTrace.prompt_assembly.specs` persists — stores the bare
+`specsBlock`: the delimited document blocks with no heading. The run drawer's segment label "Project
+context — attached specs (untrusted)" is a client-side UI label
+(`client/messages/en/runs.json`'s `trace.prompt.specs`) applied to that block for display; it is not
+text `reviewer-core` ever emits.
+
 ## Output
 
 ```typescript
