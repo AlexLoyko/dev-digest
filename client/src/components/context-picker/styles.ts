@@ -60,13 +60,21 @@ export const s = {
     cursor: "grab",
   } satisfies CSSProperties,
   checkbox: { flexShrink: 0, cursor: "pointer" } satisfies CSSProperties,
+  // No `minWidth: 0` / `overflow: hidden` here (deliberately, unlike most
+  // flex-shrink containers in this file) — `filename` below is
+  // `flexShrink: 0`, so this row's natural minimum width is filename's own
+  // content width. Letting that stand as a real floor (rather than
+  // overriding it to 0) is what makes `filename` structurally immune to
+  // any rigid sibling (a long badge, a long category) squeezing it: the
+  // shrink pressure has nowhere to go but `dirPrefix` (`flex: 1, minWidth:
+  // 0` below), which truncates with an ellipsis instead. Only in the
+  // pathological case where filename alone still doesn't fit after
+  // `dirPrefix` has given up all its width does the row grow wider than
+  // its container — a visible overflow, not a silent mid-word clip.
   pathWrap: {
     display: "flex",
     alignItems: "baseline",
     gap: 6,
-    flex: 1,
-    minWidth: 0,
-    overflow: "hidden",
   } satisfies CSSProperties,
   dirPrefix: {
     color: "var(--text-muted)",
@@ -112,7 +120,12 @@ export const s = {
   // drawer's own padding handles spacing, so this only needs the muted
   // status-text treatment (no border/background of its own).
   previewStatus: { fontSize: 13, color: "var(--text-muted)", margin: 0 } satisfies CSSProperties,
-  rowGroup: { display: "flex", flexDirection: "column", flex: 1, minWidth: 0 } satisfies CSSProperties,
+  // `flex: 1` without `minWidth: 0` — see `pathWrap` above for why the
+  // missing override is deliberate: it lets the outer row's flex algorithm
+  // treat `pathWrap`'s content minimum (i.e., `filename`'s width, since
+  // `dirPrefix` can independently shrink to 0) as this group's real floor,
+  // instead of letting `chipRow`'s rigid badges squeeze it past that floor.
+  rowGroup: { display: "flex", flexDirection: "column", flex: 1 } satisfies CSSProperties,
   // `chipRow` no longer carries a reorder-buttons slot (drag/keyboard
   // reorder now lives entirely on the leading handle, outside `chipRow`,
   // where its width is reserved identically for attached and unattached

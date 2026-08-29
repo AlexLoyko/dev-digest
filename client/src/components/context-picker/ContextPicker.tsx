@@ -526,7 +526,24 @@ function DocumentRow({
 
         {showThreatBadge && <Badge color={threatColor(threat)}>{tContext(`threat.${threat}`)}</Badge>}
         {excluded && <Badge color="var(--crit)">{tContext("excluded")}</Badge>}
-        {isMissing && <Badge color="var(--crit)">{t("missingInRepo")}</Badge>}
+        {isMissing && (
+          // `Badge` doesn't forward arbitrary DOM props, so the hover
+          // tooltip/description lives on a wrapping span instead. `title`
+          // (not `aria-label`) is deliberate: the accessible-name
+          // computation only falls back to `title` when the element has no
+          // text content of its own — since the wrapped `Badge` already
+          // renders visible text ("Missing"), that stays the accessible
+          // name, and `title` is exposed as supplementary description
+          // instead of replacing it (screen readers that surface `title`
+          // announce it alongside, not instead of, the label). An
+          // `aria-label` here would instead override the name entirely and
+          // risk being read twice (once for the wrapper, once for the
+          // Badge's own visible text), which is the reading-order footgun
+          // `title` avoids.
+          <span title={tContext("missingInRepoDetail")}>
+            <Badge color="var(--crit)">{tContext("missingInRepo")}</Badge>
+          </span>
+        )}
       </div>
     </li>
   );
