@@ -1156,50 +1156,49 @@ never evidence that the work is missing.
 
 | Criterion | Task | Test | Commit |
 |---|---|---|---|
-| AC-1 | T27, T28, T29 | `OverviewTab.test.tsx`, `brief-seed.it.test.ts`, `10-pr-brief.flow.json` | |
-| AC-2 | T8 | `brief-generate.it.test.ts` | |
-| AC-3 | T2 | `brief-prompt.test.ts` | |
-| AC-4 | T1 | `contracts.test.ts` | |
-| AC-5 | T4 | `brief-grounding.test.ts` | |
-| AC-6 | T25 | `ReviewFocusCard.test.tsx` | |
-| AC-7 | T7, T15 | `brief-repo.it.test.ts`, `hooks/brief.test.tsx` | |
-| AC-8 | T5, T11 | `brief-single-flight.test.ts`, `brief-routes.it.test.ts` | |
-| AC-9 | T11 | `brief-routes.it.test.ts` | |
-| AC-10 | T8, T23 | `brief-generate.it.test.ts`, `BriefCard.cost.test.tsx` | |
-| AC-11 | T20 | `BriefCard.regen.test.tsx` | |
-| AC-12 | T6, T17 | `brief-latest-run.test.ts`, `BriefCard.run.test.tsx` | |
-| AC-13 | T18 | `BriefCard.norun.test.tsx` | |
-| AC-14 | T3 | `brief-budget.test.ts` | |
-| AC-15 | T10 | `brief-degraded.it.test.ts` | |
-| AC-16 | T9, T21 | `brief-failure.it.test.ts`, `BriefCard.failure.test.tsx` | |
-| AC-17 | T24 | `RiskAreas.test.tsx` | |
-| AC-18 | T19 | `BriefCard.progress.test.tsx` | |
-| AC-19 | T22 | `BriefCard.swap.test.tsx` | |
-| AC-20 | T16 | `BriefCard.anatomy.test.tsx` | |
-| AC-21 | T13 | `riskSeverity.test.ts` | |
-| AC-22 | T12 | `format.test.ts` | |
-| AC-23 | T31 | `BriefCard.nobrief.test.tsx` | |
-| EC-1 | T25 | `ReviewFocusCard.test.tsx` | |
-| EC-2 | T19 | `BriefCard.progress.test.tsx` | |
-| EC-3 | T4, T8 | `brief-grounding.test.ts`, `brief-generate.it.test.ts` | |
-| EC-4 | T10 | `brief-degraded.it.test.ts` | |
-| EC-5 | T6, T18 | `brief-latest-run.test.ts`, `BriefCard.norun.test.tsx` | |
-| EC-6 | T4 | `brief-grounding.test.ts` | |
-| EC-7 | T24 | `RiskAreas.test.tsx` | |
-| EC-8 | T7 | `brief-repo.it.test.ts` | |
-| EC-9 | T11 | `brief-routes.it.test.ts` | |
-| EC-10 | T1, T9 | `contracts.test.ts`, `brief-failure.it.test.ts` | |
-| EC-11 | T2 | `brief-prompt.test.ts` | |
-| EC-12 | T18, T24, T25, T27 | `BriefCard.norun.test.tsx`, `RiskAreas.test.tsx`, `ReviewFocusCard.test.tsx`, `OverviewTab.test.tsx` | |
-| NFR-1 | T11, T19 | `brief-routes.it.test.ts`, `BriefCard.progress.test.tsx` | |
-| NFR-2 | T3 | `brief-budget.test.ts` | |
-| NFR-3 | T10 | `brief-degraded.it.test.ts` | |
-| NFR-4 | T26 (+ manual checklist) | `BriefCard.a11y.test.tsx` | |
-| NFR-5 | T14 | the three surface tests | |
-| NFR-6 | T8 | `brief-generate.it.test.ts` | |
-| NFR-7 | T2, T8 | `brief-prompt.test.ts`, `brief-generate.it.test.ts` | |
-| NFR-8 | T30 | `contracts-sync.test.ts` | |
-
+| AC-1 | T27, T28, T29 | `OverviewTab.test.tsx`, `brief-seed.it.test.ts`, `10-pr-brief.flow.json` | d240d5c e4b5dbe 1dd8689 |
+| AC-2 | T8 | `brief-generate.it.test.ts` | 4dfd852 |
+| AC-3 | T2 | `brief-prompt.test.ts` | e4b5dbe |
+| AC-4 | T1 | `contracts.test.ts` | ae57af3 |
+| AC-5 | T4 | `brief-grounding.test.ts` | e4b5dbe |
+| AC-6 | T25 | `ReviewFocusCard.test.tsx` | d240d5c de82da8 |
+| AC-7 | T7, T15 | `brief-repo.it.test.ts`, `hooks/brief.test.tsx` | e4b5dbe |
+| AC-8 | T5, T11 | `brief-single-flight.test.ts`, `brief-routes.it.test.ts` | e4b5dbe 4dfd852 b8aac7e |
+| AC-9 | T11 | `brief-routes.it.test.ts` | 4dfd852 b8aac7e |
+| AC-10 | T8, T23 | `brief-generate.it.test.ts`, `BriefCard.cost.test.tsx` | 4dfd852 d240d5c de82da8 |
+| AC-11 | T20 | `BriefCard.regen.test.tsx` | d240d5c |
+| AC-12 | T6, T17 | `brief-latest-run.test.ts`, `BriefCard.run.test.tsx` | e4b5dbe d240d5c |
+| AC-13 | T18 | `BriefCard.norun.test.tsx` | d240d5c |
+| AC-14 | T3 | `brief-budget.test.ts` | e4b5dbe |
+| AC-15 | T10 | `brief-degraded.it.test.ts` | 4dfd852 |
+| AC-16 | T9, T21 | `brief-failure.it.test.ts`, `BriefCard.failure.test.tsx` | 4dfd852 d240d5c b8aac7e |
+| AC-17 | T24 | `RiskAreas.test.tsx` | d240d5c de82da8 |
+| AC-18 | T19 | `BriefCard.progress.test.tsx` | d240d5c |
+| AC-19 | T22 | `BriefCard.swap.test.tsx` | d240d5c |
+| AC-20 | T16 | `BriefCard.anatomy.test.tsx` | d240d5c de82da8 |
+| AC-21 | T13 | `riskSeverity.test.ts` | e4b5dbe de82da8 |
+| AC-22 | T12 | `format.test.ts` | e4b5dbe de82da8 |
+| AC-23 | T31 | `BriefCard.nobrief.test.tsx` | d240d5c |
+| EC-1 | T25 | `ReviewFocusCard.test.tsx` | d240d5c de82da8 |
+| EC-2 | T19 | `BriefCard.progress.test.tsx` | d240d5c de82da8 |
+| EC-3 | T4, T8 | `brief-grounding.test.ts`, `brief-generate.it.test.ts` | e4b5dbe 4dfd852 |
+| EC-4 | T10 | `brief-degraded.it.test.ts` | 4dfd852 |
+| EC-5 | T6, T18 | `brief-latest-run.test.ts`, `BriefCard.norun.test.tsx` | e4b5dbe d240d5c |
+| EC-6 | T4 | `brief-grounding.test.ts` | e4b5dbe |
+| EC-7 | T24 | `RiskAreas.test.tsx` | d240d5c |
+| EC-8 | T7 | `brief-repo.it.test.ts` | e4b5dbe |
+| EC-9 | T11 | `brief-routes.it.test.ts` | 4dfd852 |
+| EC-10 | T1, T9 | `contracts.test.ts`, `brief-failure.it.test.ts` | ae57af3 4dfd852 |
+| EC-11 | T2 | `brief-prompt.test.ts` | e4b5dbe |
+| EC-12 | T18, T24, T25, T27 | `BriefCard.norun.test.tsx`, `RiskAreas.test.tsx`, `ReviewFocusCard.test.tsx`, `OverviewTab.test.tsx` | d240d5c |
+| NFR-1 | T11, T19 | `brief-routes.it.test.ts`, `BriefCard.progress.test.tsx` | 4dfd852 d240d5c b8aac7e |
+| NFR-2 | T3 | `brief-budget.test.ts` | e4b5dbe |
+| NFR-3 | T10 | `brief-degraded.it.test.ts` | 4dfd852 |
+| NFR-4 | T26 (+ manual checklist) | `BriefCard.a11y.test.tsx` | d240d5c de82da8 |
+| NFR-5 | T14 | the three surface tests | e4b5dbe |
+| NFR-6 | T8 | `brief-generate.it.test.ts` | 4dfd852 |
+| NFR-7 | T2, T8 | `brief-prompt.test.ts`, `brief-generate.it.test.ts` | e4b5dbe 4dfd852 |
+| NFR-8 | T30 | `contracts-sync.test.ts` | e4b5dbe |
 The same binding as a checklist:
 
 ```

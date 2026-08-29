@@ -1,6 +1,6 @@
 # Run — PR Why + Risk Brief
 Plan: docs/plans/pr-why-risk-brief.md (31 tasks / 6 phases)
-Spec: specs/SPEC-02-pr-why-risk-brief/SPEC-02.md (23 ACs, Status: approved)
+Spec: specs/SPEC-02-pr-why-risk-brief/SPEC-02.md (23 ACs, Status: implemented)
 Mode: multi-agent
 
 Pre-run commits: 42f60c8 spec · c6d5dc9 AC-23 · 0ef1464 plan
@@ -12,11 +12,11 @@ Pre-run commits: 42f60c8 spec · c6d5dc9 AC-23 · 0ef1464 plan
 - Traceability: 23/23 ACs, 12/12 ECs, 8/8 NFRs
 
 ## Stages
-- [~] implement — phase 1 (T1) → ae57af3 · gate green (server 114 tests, client 37, typecheck clean vs baseline)
-- [ ] phase 2 in flight — done: T4 T5 T13 · running: T2 T6 T7 T12 T14 T15 T28 T30 · held: T3 (depends on T2)
-- [ ] verify
-- [ ] review
-- [ ] close
+- [x] implement — 31 tasks, 6 phases → ae57af3 e4b5dbe 4dfd852 d240d5c 1dd8689
+- [x] verify   — arch-check 3 pre-existing violations (none brief.ts); plan-verifier Mode 1:
+                 41/43 done, 2 partial (AC-16, NFR-1), both closed → b8aac7e
+- [x] review   — architecture-reviewer: PASS, 0 critical / 0 high, 1 medium / 2 low / 1 info
+- [x] close    — spec Status: implemented; 43/43 Commit cells filled; architecture.md updated
 
 ## Open
 - PLAN INCONSISTENCY: Phase 2's header says "every task here depends only on T1
@@ -66,3 +66,29 @@ so AC-4 and EC-10 are genuinely executed, not debt.
 - Pre-existing arch-check contracts-in-sync violations: eval-ci.ts, knowledge.ts,
   productionize.ts — real drift, out of SPEC-02 scope. NFR-8 narrowed to
   "count does not increase (3) and brief.ts is not among them" (plan T30).
+
+
+## Deferred from the architecture review (PASS, 0 critical / 0 high)
+- MEDIUM `component-splitting` — BriefCard.tsx is 395 lines across five mutually-exclusive
+  state branches. The reviewer's case is sound (the states replace one another rather than
+  compose, so "composition over extraction" does not apply) and it flagged this "for
+  discussion, not a hard gate". Deferred: it is a substantial refactor of a file with eleven
+  test files, immediately after its design fidelity was tuned by hand. Worth doing on its own,
+  not as a tail-end of this run.
+- LOW ×2 `di-wiring-drift` — `new BriefService(container, app.log)` and
+  `new BriefRepository(container.db)`. The reviewer confirmed both match the shipped
+  convention in blast/routes.ts:10 and intent/service.ts:32 exactly. This is the documented
+  rule disagreeing with three modules of shipped code, not a defect here. Same class as the
+  `di-discipline` rule that once flagged 23 sites of intentional code.
+- INFO `classifyThrow()` — separates invalid_result from model_error by testing the error
+  message for the substring "schema". The reviewer's verdict: "there is no rule this violates
+  — but there is also no rule making it safe." The real fix is a discriminated error on the
+  LLMProvider port, which is a port-contract change beyond SPEC-02.
+
+## Known gaps, stated plainly
+- NFR-4's manual half (pointer-driven screen-reader and keyboard walkthrough) is a release
+  checklist item. The seven automatable clauses pass; the manual pass has NOT been run.
+- NFR-1's wall-clock p95 is argued architecturally and guarded structurally (7 queries,
+  constant with data volume). No timing assertion exists, deliberately — it would only flake.
+- e2e flow 09 leg 3 (run drawer "Project context" segment) still fails. Pre-existing, from the
+  previous feature, documented in coverage.md. 9/10 flows pass.

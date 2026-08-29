@@ -2,6 +2,8 @@
    All hooks build on `apiFetch`. Errors are normalized to ApiError so the
    error-UX taxonomy (toast/inline/full-screen) can branch on status. */
 
+import type { BriefResponse, StoredBrief } from "@devdigest/shared";
+
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:3001";
 
@@ -108,12 +110,18 @@ export const api = {
  * PR Brief (SPEC-02) — GET /pulls/:id/brief, POST /pulls/:id/brief/generate.
  * ------------------------------------------------------------------------- */
 
-import type { BriefResponse } from "@devdigest/shared";
-
 export function fetchBrief(prId: string | number): Promise<BriefResponse> {
   return api.get<BriefResponse>(`/pulls/${prId}/brief`);
 }
 
-export function generateBrief(prId: string | number) {
-  return api.post<BriefResponse>(`/pulls/${prId}/brief/generate`);
+/** `POST /pulls/:id/brief/generate` returns `StoredBrief` on success — NOT
+ *  `BriefResponse` (that shape is `GET`'s only: `{brief, meta, stale,
+ *  latest_run}`). `StoredBrief` is `BriefMeta & {brief: PrBrief}` — no
+ *  `stale`/`latest_run` fields, since a fresh generation is by definition not
+ *  stale and this route doesn't resolve the PR's latest run (server/docs/
+ *  api-contracts.md, "PR Brief"). On failure the server sends a
+ *  discriminated `{reason, hasPriorBrief}` body instead, surfaced via
+ *  `ApiError.body`, not this return type. */
+export function generateBrief(prId: string | number): Promise<StoredBrief> {
+  return api.post<StoredBrief>(`/pulls/${prId}/brief/generate`);
 }

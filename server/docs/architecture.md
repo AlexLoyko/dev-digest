@@ -66,9 +66,12 @@ ReviewService.run()
 
 Drizzle ORM + PostgreSQL + pgvector. Tables are pre-defined for all course lessons — many are empty stubs today.
 
-**Active tables:** `repos`, `pulls`, `reviews`, `findings`, `agents`, `runs`, plus the four Project
-Context tables added by migration `0011` (`repo_context_documents`, `repo_context_scans`,
+**Active tables:** `repos`, `pulls`, `reviews`, `findings`, `agents`, `runs`, `pr_brief`, plus the four
+Project Context tables added by migration `0011` (`repo_context_documents`, `repo_context_scans`,
 `agent_context_documents`, `skill_context_documents` — see below).
+<!-- updated from: server/src/modules/brief/repository.ts, server/src/db/schema/reviews.ts -->
+`pr_brief` (see `## PR Why + Risk Brief`, below) is no longer a stub as of SPEC-02 — it is read on
+every `GET /pulls/:id/brief` and written on every `POST /pulls/:id/brief/generate`.
 **Future (pre-defined, empty):** `skills`, `memory_items`, `eval_cases`, `eval_runs`, `blast_radius`, `conventions`, `intents`, `smart_diffs`, `ci_runs`
 
 Migrations live in `drizzle/`. Rules:
@@ -175,6 +178,81 @@ against the wrong repo's clone. The run executor does not share this ambiguity: 
 documents from the actual repo the PR under review belongs to
 (`run-executor.ts`'s `buildProjectContextSpecs`), so the heuristic affects only the configuration
 surface (attach validation, token hydration, the skill preview) — never what a run actually injects.
+
+## PR Why + Risk Brief Module
+
+<!-- generated from: server/src/modules/brief/{service,repository,routes,single-flight,budget}.ts, server/src/db/schema/reviews.ts, server/test/brief-routes.it.test.ts -->
+
+`src/modules/brief/` (added by SPEC-02) fills the `pr_brief` storage slot and the `risk_brief`
+model-selection entry that were pre-placed as scaffolding — a brief judging a pull request's risk
+level, its concrete risks, and what to review first, surfaced at the top of the Overview tab. It is
+onion-layered like every other module:
+
+- `repository.ts` — the only file in this module issuing Drizzle.
+- `service.ts` — `BriefService`: `getBriefView` (read) and `generate` (the only path that spends
+  money).
+- `single-flight.ts` — in-process request coalescing, described below.
+- `budget.ts` — shrinks the model input to fit a fixed token budget.
+- `grounding.ts` — drops any file reference the model invents outside the PR's real changed files.
+- `prompt.ts` / `types.ts` / `constants.ts` / `latest-run.ts` — prompt assembly, input types, and
+  the "which run counts as the latest completed one" selection.
+- `routes.ts` — `GET /pulls/:id/brief`, `POST /pulls/:id/brief/generate`; see
+  `server/docs/api-contracts.md`.
+
+### Storage: no migration, no schema change
+
+`pr_brief` already existed as `{ pr_id PK, json jsonb NOT NULL }` (`server/src/db/schema/reviews.ts:57`).
+This feature fills it rather than altering it: the entire envelope — head sha, generated-at,
+provider, model, token counts, cost, duration, the degradation list, and the brief itself — lives in
+that free-form `json` column. `.$type<>()` was deliberately not added to the schema; the mapper is
+`StoredBrief.safeParse()` in `repository.ts`, run at read time. A row whose `json` fails that parse
+degrades to "no brief" rather than throwing a 500 — a migration would only have bought an indexable
+head sha, which is worthless against a primary-key lookup that returns at most one row.
+
+### Read never spends, generate is gated
+
+`GET /pulls/:id/brief` makes zero model calls in every branch, including when the stored brief is
+stale — it diverges deliberately from its two nearest neighbours, `GET /pulls/:id/intent` (computes
+on a cache miss) and `GET /pulls/:id/blast` (always calls the LLM): a read that spends money means
+merely loading a page bills the user. Both of the feature's spend controls sit on the `POST` route
+instead — a 10/min rate limit and `SingleFlight` (`single-flight.ts`), a new pattern in this
+codebase. It is in-process only, backed by a `Map<string, Promise>` keyed `${prId}:${headSha}` — a
+restart drops it and a second API instance would not share it, the same limitation `RunBus`
+(`platform/sse.ts`) already has. It exists to coalesce concurrent generation requests for the same PR
+state into one paid model call, not for convenience.
+
+```mermaid
+flowchart TD
+  A([Client]) -->|GET /pulls/:id/brief| B[BriefRepository.getStored<br/>+ getLatestRunRows]
+  B --> C[[Zero LLM calls, every branch]]
+  A -->|POST /pulls/:id/brief/generate| D{SingleFlight:<br/>call already in flight<br/>for prId:headSha?}
+  D -- yes --> E[Await the running promise<br/>no second model call]
+  D -- no --> F[fitToBudget: shed inputs<br/>to stay within 8000 tokens]
+  F --> G[One completeStructured call]
+  G --> H[groundBrief: drop file refs<br/>outside the PR's real changed files]
+  H --> I[BriefRepository.upsert]
+  E --> J([Same StoredBrief returned to every caller])
+  I --> J
+```
+
+The diagram shows the two routes never sharing a code path except at the `SingleFlight` join: `GET`
+only ever reads, `POST` is the only place a model call can occur, and a second `POST` for the same
+PR state waits on the first rather than starting its own. The blast-summary input on the generate
+path is read from `container.repoIntel.getBlastRadius` directly rather than through `BlastService`,
+because `BlastService` always calls the LLM and routing through it would fire a second paid call per
+brief. Diff hunk bodies never enter the model input either way — the changed-file rows carry path and
+line counts only (`BriefRepository.getChangedFiles` never selects `pr_files.patch`); `fitToBudget`
+sheds the changed-file list by binary-searching the largest ranked prefix that fits, so a 400-file
+pull request costs about thirteen `tokenizer.count()` calls rather than four hundred.
+
+### Bounded read path
+
+The read path issues a fixed, constant number of queries regardless of PR size — measured at seven
+for the fullest case in `server/test/brief-routes.it.test.ts`, unchanged whether the pull request has
+one completed run and one changed file or twenty-five runs and forty files. `BriefService` is
+constructed once at plugin registration (mirroring `modules/blast/routes.ts`, not
+`modules/intent/routes.ts`'s per-request construction), because `SingleFlight` lives on the service
+instance — a fresh instance per request would silently defeat request coalescing.
 
 ## Rate Limiting
 

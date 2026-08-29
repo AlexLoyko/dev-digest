@@ -1,6 +1,6 @@
 # Spec: PR Why + Risk Brief
 Spec ID: SPEC-02
-Status: approved
+Status: implemented
 Supersedes: none
 
 ## Problem and user
