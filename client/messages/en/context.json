@@ -25,6 +25,7 @@
   "usedByAgents": "{count, plural, one {Used by # agent} other {Used by # agents}}",
   "tokens": "{count, plural, one {# token} other {# tokens}}",
   "tokensApprox": "estimated",
+  "tokensCompact": "{count}t",
   "threat": {
     "safe": "Safe",
     "suspicious": "Suspicious",

@@ -9,7 +9,7 @@
 import React from "react";
 import { useTranslations } from "next-intl";
 import type { SpecFile } from "@devdigest/shared";
-import { Badge, Card, IconBtn, Icon } from "@devdigest/ui";
+import { Badge, Button, Card, Icon } from "@devdigest/ui";
 import { useContextDocument } from "@/lib/hooks";
 import {
   buildDisplayRows,
@@ -26,7 +26,7 @@ import {
   type DisplayRow,
   type MoveDirection,
 } from "./helpers";
-import { s, reorderBtnStyle } from "./styles";
+import { s, reorderBtnStyle, reorderGroupRevealStyle } from "./styles";
 
 export interface ContextPickerProps {
   documents: SpecFile[];
@@ -91,20 +91,21 @@ export function ContextPicker({
     <Card>
       <div style={s.root}>
         <div style={s.header}>
-          <h3 style={s.heading}>{t("heading")}</h3>
-          <Badge>{t("attachedCount", { count: attachedPaths.length })}</Badge>
+          <div style={s.headerLeft}>
+            <h3 style={s.heading}>{t("heading")}</h3>
+            <Badge>{t("attachedCount", { count: attachedPaths.length })}</Badge>
+          </div>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={t("filterPlaceholder")}
+            aria-label={t("filterPlaceholder")}
+            disabled={busy}
+            style={s.filterInput}
+          />
         </div>
         <p style={s.helper}>{t("helper")}</p>
         <p style={s.helper}>{t("injectedNote")}</p>
-
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder={t("filterPlaceholder")}
-          aria-label={t("filterPlaceholder")}
-          disabled={busy}
-          style={s.filterInput}
-        />
         <span style={s.filterCount}>
           {tContext("filter.showing", { count: rows.length, total: allRows.length })}
         </span>
@@ -192,9 +193,33 @@ function DocumentRow({
   // become excluded stays checked and enabled so it can still be removed.
   const excluded = isExcluded(doc);
   const attachable = canAttach(row, isAttached);
+  // The reference design shows only a drag handle for reordering, but HTML5
+  // drag can't be driven from a keyboard (NFR-4). The move-up/move-down
+  // buttons stay real, always-tabbable elements — `revealed` only fades
+  // them in on row hover or when one holds focus, so they read as quiet
+  // as the reference's handle without losing keyboard operability. React's
+  // onFocus/onBlur act like native focusin/focusout here (bubble to the
+  // <li>), so this doubles as a focus-within check.
+  const [revealed, setRevealed] = React.useState(false);
+  // Only suspicious/dangerous documents get a threat badge — the reference
+  // shows no badge at all, and a badge on every safe/unknown row would be
+  // noise. Reserving it for the two levels that actually warrant a warning
+  // keeps EC's injection-threat signal intact (see the threat-badge note in
+  // the picker's module doc comment) while matching the cleaner look.
+  const showThreatBadge = threat === "suspicious" || threat === "dangerous";
 
   return (
-    <li style={s.row}>
+    <li
+      style={s.row}
+      onMouseEnter={() => setRevealed(true)}
+      onMouseLeave={() => setRevealed(false)}
+      onFocus={() => setRevealed(true)}
+      onBlur={() => setRevealed(false)}
+    >
+      <span aria-hidden="true" style={s.dragHandle}>
+        <Icon.Menu size={14} />
+      </span>
+
       <input
         type="checkbox"
         checked={isAttached}
@@ -206,10 +231,10 @@ function DocumentRow({
 
       <div style={s.rowGroup}>
         <span style={s.pathWrap}>
-          {dir && <span style={s.dirPrefix}>{dir}</span>}
           <span className="mono" style={s.filename}>
             {name}
           </span>
+          {dir && <span style={s.dirPrefix}>{dir}</span>}
         </span>
         {/* Mounted only while open — the fetch it owns is gated on that,
             and its loading/success/error re-renders stay local to this
@@ -218,25 +243,26 @@ function DocumentRow({
       </div>
 
       <div style={s.chipRow}>
-        {doc && <Badge>{tContext(`sourceRoot.${doc.root}`)}</Badge>}
+        {doc && <span style={s.sourceRootLabel}>{tContext(`sourceRoot.${doc.root}`)}</span>}
         {doc?.tokens != null && (
-          <span style={s.tokenCount}>
-            {doc.tokens_approximate ? "≈ " : ""}
-            {tContext("tokens", { count: doc.tokens })}
-            {doc.tokens_approximate ? ` · ${tContext("tokensApprox")}` : ""}
+          <span style={s.tokenCount} title={tContext("tokens", { count: doc.tokens })}>
+            {doc.tokens_approximate ? "≈" : ""}
+            {tContext("tokensCompact", { count: doc.tokens })}
           </span>
         )}
-        <Badge color={threatColor(threat)}>{tContext(`threat.${threat}`)}</Badge>
+        {showThreatBadge && <Badge color={threatColor(threat)}>{tContext(`threat.${threat}`)}</Badge>}
         {excluded && <Badge color="var(--crit)">{tContext("excluded")}</Badge>}
         {isMissing && <Badge color="var(--crit)">{t("missingInRepo")}</Badge>}
 
-        <IconBtn icon="Eye" label={tContext("mode.preview")} size={22} active={previewOpen} onClick={onTogglePreview} />
+        <Button kind="tertiary" size="sm" icon="Eye" active={previewOpen} onClick={onTogglePreview}>
+          {tContext("mode.preview")}
+        </Button>
 
         {isAttached && (
-          <>
+          <span style={{ ...s.reorderGroup, ...reorderGroupRevealStyle(revealed) }}>
             <ReorderButton icon="ArrowUp" label={t("moveUp")} disabled={busy || !canMoveUp} onClick={() => onMove("up")} />
             <ReorderButton icon="ArrowDown" label={t("moveDown")} disabled={busy || !canMoveDown} onClick={() => onMove("down")} />
-          </>
+          </span>
         )}
       </div>
     </li>

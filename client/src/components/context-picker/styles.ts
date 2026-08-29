@@ -3,11 +3,13 @@ import type { CSSProperties } from "react";
 /** Co-located styles for ContextPicker. */
 export const s = {
   root: { display: "flex", flexDirection: "column", gap: 12 } satisfies CSSProperties,
-  header: { display: "flex", alignItems: "center", gap: 10 } satisfies CSSProperties,
-  heading: { fontSize: 15, fontWeight: 700, flex: 1, margin: 0 } satisfies CSSProperties,
+  header: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 } satisfies CSSProperties,
+  headerLeft: { display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 } satisfies CSSProperties,
+  heading: { fontSize: 15, fontWeight: 700, margin: 0 } satisfies CSSProperties,
   helper: { fontSize: 12, color: "var(--text-muted)", margin: 0 } satisfies CSSProperties,
   filterInput: {
-    width: "100%",
+    width: 220,
+    flexShrink: 0,
     padding: "6px 10px",
     border: "1px solid var(--border)",
     borderRadius: 7,
@@ -16,7 +18,7 @@ export const s = {
     color: "var(--text-primary)",
     boxSizing: "border-box",
   } satisfies CSSProperties,
-  filterCount: { fontSize: 11, color: "var(--text-muted)" } satisfies CSSProperties,
+  filterCount: { display: "block", textAlign: "right", fontSize: 11, color: "var(--text-muted)" } satisfies CSSProperties,
   list: { display: "flex", flexDirection: "column", gap: 6, padding: 0, margin: 0, listStyle: "none" } satisfies CSSProperties,
   empty: { fontSize: 13, color: "var(--text-muted)", textAlign: "center", padding: 20 } satisfies CSSProperties,
   row: {
@@ -28,11 +30,20 @@ export const s = {
     border: "1px solid var(--border)",
     background: "var(--bg-elevated)",
   } satisfies CSSProperties,
+  dragHandle: {
+    display: "inline-grid",
+    placeItems: "center",
+    flexShrink: 0,
+    width: 16,
+    height: 22,
+    color: "var(--text-muted)",
+    cursor: "grab",
+  } satisfies CSSProperties,
   checkbox: { flexShrink: 0, cursor: "pointer" } satisfies CSSProperties,
   pathWrap: {
     display: "flex",
     alignItems: "baseline",
-    gap: 0,
+    gap: 6,
     flex: 1,
     minWidth: 0,
     overflow: "hidden",
@@ -40,6 +51,8 @@ export const s = {
   dirPrefix: {
     color: "var(--text-muted)",
     fontSize: 12,
+    flex: 1,
+    minWidth: 0,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
@@ -48,6 +61,14 @@ export const s = {
     color: "var(--text-primary)",
     fontSize: 12,
     fontWeight: 600,
+    flexShrink: 0,
+    whiteSpace: "nowrap",
+  } satisfies CSSProperties,
+  sourceRootLabel: {
+    fontSize: 12,
+    fontWeight: 500,
+    color: "var(--text-secondary)",
+    flexShrink: 0,
     whiteSpace: "nowrap",
   } satisfies CSSProperties,
   tokenCount: { fontSize: 11, color: "var(--text-muted)", flexShrink: 0, whiteSpace: "nowrap" } satisfies CSSProperties,
@@ -66,6 +87,7 @@ export const s = {
   } satisfies CSSProperties,
   rowGroup: { display: "flex", flexDirection: "column", flex: 1, minWidth: 0 } satisfies CSSProperties,
   chipRow: { display: "flex", alignItems: "center", gap: 6, flexShrink: 0 } satisfies CSSProperties,
+  reorderGroup: { display: "flex", alignItems: "center", gap: 2, flexShrink: 0 } satisfies CSSProperties,
   footer: {
     display: "flex",
     alignItems: "center",
@@ -103,4 +125,12 @@ export function reorderBtnStyle(disabled: boolean): CSSProperties {
     cursor: disabled ? "not-allowed" : "pointer",
     flexShrink: 0,
   };
+}
+
+/** Reorder buttons stay real, tabbable elements at all times (NFR-4 — Tab
+ *  must reach them even before hover/focus). `revealed` only fades them in
+ *  visually on row hover or when one of them holds focus — matching the
+ *  reference's drag-handle-only look while the buttons keep working. */
+export function reorderGroupRevealStyle(revealed: boolean): CSSProperties {
+  return { opacity: revealed ? 1 : 0, transition: "opacity .12s" };
 }
