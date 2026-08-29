@@ -181,7 +181,7 @@ function DocumentRow({
           <ThreatIcon size={11} />
           {t(`threat.${threat.labelKey}`)}
         </span>
-        {usedBy > 0 && <span>{t("usedByAgents", { count: usedBy })}</span>}
+        <span style={s.usedByAgents(usedBy > 0)}>{t("usedByAgents", { count: usedBy })}</span>
         {tokens != null && (
           <span>
             {approximate ? "≈ " : ""}

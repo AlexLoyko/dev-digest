@@ -118,6 +118,15 @@ export const s = {
     color: "var(--crit)",
     fontWeight: 600,
   } satisfies CSSProperties,
+  /** AC-4: usage indicator shown for every document, including zero. A
+   * non-zero count stands out (primary text, bold); zero stays quiet —
+   * the same muted colour the row already uses for secondary metadata
+   * (tokens, etc.), so an unused document doesn't visually compete with
+   * one that's actually wired to an agent. */
+  usedByAgents: (used: boolean): CSSProperties => ({
+    color: used ? "var(--text-primary)" : "var(--text-muted)",
+    fontWeight: used ? 600 : 400,
+  }),
   viewerCol: {
     border: "1px solid var(--border)",
     borderRadius: 10,
