@@ -479,6 +479,17 @@ export function BriefCard({ prId }: BriefCardProps) {
           </div>
           <p style={{ ...s.what, ...dimStyle }}>{brief.what}</p>
           <p style={{ ...s.why, ...dimStyle }}>{brief.why}</p>
+          {/* AC-16's cause clause (before the em-dash) binds BOTH failure
+             branches, not just the no-prior one — the with-prior chip above
+             states THAT an update failed and WHAT is shown instead, but
+             never WHY, so a transient blip and a persistently-broken model
+             read identically. Same `failureCause()` call as the no-prior
+             branch, same reason-keyed `card.failure.cause.*` copy — kept at
+             full emphasis (no `dimStyle`) like the chip above it, since this
+             is new information about the failure, not part of the dimmed
+             earlier brief; still visually subordinate to the chip by virtue
+             of reading order and `s.why`'s already-muted treatment. */}
+          <p style={s.why}>{failureCause(generate.error, t, tCommon)}</p>
           <div style={generateCtaWrap}>
             <Button kind="secondary" icon="RefreshCw" onClick={() => generate.mutate()}>
               {t("card.failure.retry")}

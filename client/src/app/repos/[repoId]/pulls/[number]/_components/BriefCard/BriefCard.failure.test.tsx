@@ -289,6 +289,11 @@ describe("BriefCard failure — with an earlier brief (AC-16, design/states/Fail
     const chip = chipText.closest("span");
     expect(chip?.getAttribute("style") ?? "").not.toContain("opacity");
 
+    // The reason-keyed cause sentence (AC-16's cause clause binds this
+    // branch too, not just the no-prior one) — resolved from the same
+    // `error.body.reason` as the no-prior branch, present beneath the chip.
+    expect(within(main).getByText(briefMessages.card.failure.cause.invalid_result)).toBeInTheDocument();
+
     // The regular findings/blockers/no-run chip never coexists with the
     // failure chip — one clear indication, not a contradicting second one.
     expect(
@@ -317,6 +322,60 @@ describe("BriefCard failure — with an earlier brief (AC-16, design/states/Fail
       fireEvent.click(retry);
     });
     expect(generateCallCount(fetchMock)).toBe(2);
+  });
+
+  it("renders a distinct cause sentence for reason: 'model_error', with the earlier brief still readable at reduced emphasis", async () => {
+    renderCard("pr-failure-withbrief-model-error-1", async (url) => {
+      if (url.includes("/brief/generate")) {
+        return failureResponse(502, "Bad Gateway", {
+          reason: "model_error",
+          hasPriorBrief: true,
+        });
+      }
+      return jsonResponse(FRESH_WITH_BRIEF_RESPONSE);
+    });
+
+    const { trailing: trailingBefore } = await findRegions();
+    const regenerateButton = within(trailingBefore).getByRole("button", {
+      name: briefMessages.card.regenerateAriaLabel,
+    });
+
+    await act(async () => {
+      fireEvent.click(regenerateButton);
+    });
+
+    await screen.findByRole("alert");
+    const { leading, main, trailing } = await findRegions();
+
+    // The 'model_error' cause sentence appears, is distinct from
+    // 'invalid_result''s, and the two never both appear at once.
+    expect(within(main).getByText(briefMessages.card.failure.cause.model_error)).toBeInTheDocument();
+    expect(within(main).queryByText(briefMessages.card.failure.cause.invalid_result)).not.toBeInTheDocument();
+    expect(briefMessages.card.failure.cause.model_error).not.toBe(briefMessages.card.failure.cause.invalid_result);
+
+    // The earlier brief's headline, "what"/"why" prose, and score ring (with
+    // its label — EC-2) are all still present at reduced emphasis alongside
+    // the cause sentence, exactly as the 'invalid_result' case above.
+    const headlineEl = within(main).getByText(prReviewMessages.verdict.requestChanges);
+    expect(headlineEl.getAttribute("style") ?? "").toContain("opacity: 0.5");
+    const whatEl = within(main).getByText(FRESH_WITH_BRIEF_RESPONSE.brief!.what);
+    const whyEl = within(main).getByText(FRESH_WITH_BRIEF_RESPONSE.brief!.why);
+    expect(whatEl.getAttribute("style") ?? "").toContain("opacity: 0.5");
+    expect(whyEl.getAttribute("style") ?? "").toContain("opacity: 0.5");
+    const scoreRing = within(trailing).getByRole("img", {
+      name: briefMessages.card.score.accessibleLabel.replace("{score}", "61"),
+    });
+    expect(scoreRing.getAttribute("style") ?? "").toContain("opacity: 0.5");
+    expect(within(trailing).getByText(briefMessages.card.score.label)).toBeInTheDocument();
+
+    // The cause sentence itself is NOT dimmed like the earlier brief content
+    // — it's new information about the current failure, not part of the
+    // superseded prior brief.
+    const causeEl = within(main).getByText(briefMessages.card.failure.cause.model_error);
+    expect(causeEl.getAttribute("style") ?? "").not.toContain("opacity: 0.5");
+
+    // Still exactly one recovery affordance.
+    expect(screen.getAllByRole("button")).toHaveLength(1);
   });
 });
 

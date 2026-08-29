@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { eq } from 'drizzle-orm';
+import postgres from 'postgres';
+import { drizzle } from 'drizzle-orm/postgres-js';
 import type {
   LLMProvider,
   CompletionRequest,
@@ -10,6 +12,7 @@ import type {
 } from '@devdigest/shared';
 import { BriefResponse, StoredBrief } from '@devdigest/shared';
 import * as t from '../src/db/schema.js';
+import type { Db } from '../src/db/client.js';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/platform/config.js';
 import { BriefRepository } from '../src/modules/brief/repository.js';
@@ -143,6 +146,42 @@ async function seedFailedRun(db: Db, workspaceId: string, prId: string, agentId:
     status: 'failed',
     error: 'upstream timeout',
   });
+}
+
+/**
+ * A second `postgres-js` connection to the SAME Testcontainers instance,
+ * wired to `postgres`'s own `debug` hook (fires once per query issued on the
+ * connection — no product-code seam needed, per the NFR-1 query-count test's
+ * constraints). `buildApp({ db })` accepts any `Db`-shaped client, so
+ * swapping this one in for a single request changes nothing about the
+ * route/service/repository code under test — it only lets the test observe
+ * what that code does. `db/client.ts`'s `createDb` is deliberately left
+ * untouched; this instrumentation lives only here, in the test file.
+ */
+function createInstrumentedDb(url: string): { db: Db; getCount: () => number; close: () => Promise<void> } {
+  let count = 0;
+  // `max: 1` pins every query issued through this client to ONE physical
+  // connection. This is deliberate, not incidental: postgres-js runs a
+  // one-time-per-physical-connection type-introspection query (`pg_type`
+  // array-OID discovery) the first time a connection is used, and
+  // `getContext`'s `Promise.all([currentUser, currentWorkspace])` fires two
+  // queries concurrently — with a bigger pool, that concurrency can open a
+  // second physical connection and double-count that introspection query
+  // non-deterministically. Serializing onto one connection makes the count
+  // depend only on how many logical queries the app issues, not on the
+  // driver's incidental connection-pool sizing.
+  const sql = postgres(url, {
+    max: 1,
+    debug: () => {
+      count++;
+    },
+  });
+  const db = drizzle(sql, { schema: t.schema }) as Db;
+  return {
+    db,
+    getCount: () => count,
+    close: () => sql.end({ timeout: 5 }),
+  };
 }
 
 function makeStoredBrief(headSha: string): StoredBrief {
@@ -390,6 +429,115 @@ d('Brief HTTP routes (Testcontainers, AC-9 / AC-8 / AC-23)', () => {
 
     await app.close();
   });
+
+  it(
+    'GET on the fullest read path (stored brief + completed run) issues a bounded, ' +
+      'fixed number of DB queries that does NOT grow with data volume (NFR-1)',
+    async () => {
+      const db = pg.handle.db;
+
+      /**
+       * Seeds the fullest GET read path — a PR with a stored brief AND at
+       * least one completed agent run — with `runCount` completed runs and
+       * `fileCount` changed files, then returns the PR id. `fileCount` seeds
+       * `pr_files` even though today's GET path never reads that table (only
+       * `generate()` does, via `getChangedFiles`) — it's included anyway so
+       * this test still guards against a future GET change that starts
+       * joining in file data without checking for N+1 first.
+       */
+      async function seedFullReadPath(name: string, runCount: number, fileCount: number): Promise<string> {
+        const repoId = await seedRepo(db, workspaceId, name);
+        const prId = await seedPull(db, workspaceId, repoId, { headSha: 'sha-a' });
+        const agentId = await seedAgent(db, workspaceId, `Agent ${name}`);
+
+        const repo = new BriefRepository(db);
+        await repo.upsert(prId, makeStoredBrief('sha-a'));
+
+        for (let i = 0; i < runCount; i++) {
+          await seedCompletedRun(db, workspaceId, prId, agentId);
+        }
+
+        if (fileCount > 0) {
+          await db.insert(t.prFiles).values(
+            Array.from({ length: fileCount }, (_, i) => ({
+              prId,
+              path: `src/file-${i}.ts`,
+              additions: 1,
+              deletions: 0,
+            })),
+          );
+        }
+
+        return prId;
+      }
+
+      // "small": the minimal fullest-path fixture — one run, one file.
+      const smallPrId = await seedFullReadPath('query-count-small', 1, 1);
+      // "large": substantially more of everything the read path (or a
+      // plausible future extension of it) touches — 25 completed runs,
+      // 40 changed files, same PR/brief shape otherwise.
+      const largePrId = await seedFullReadPath('query-count-large', 25, 40);
+
+      /**
+       * Runs exactly one `GET /pulls/:id/brief` against a FRESH `buildApp()`
+       * (fresh `Container`, fresh `LocalNoAuthProvider`) and returns how many
+       * queries that single request issued. Fresh per call is deliberate: it
+       * keeps the two measurements comparable (both pay the same cold-cache
+       * auth cost) rather than letting one benefit from a cache the other
+       * doesn't get.
+       */
+      async function countQueriesForGet(prId: string): Promise<number> {
+        const instrumented = createInstrumentedDb(pg.url);
+        const provider = new MockLLMProvider('openai', { structured: PR_BRIEF_FIXTURE });
+        const app = await buildApp({
+          config,
+          db: instrumented.db,
+          overrides: { llm: { openai: provider }, github: new MockGitHubClient() },
+        });
+
+        const res = await app.inject({ method: 'GET', url: `/pulls/${prId}/brief` });
+        expect(res.statusCode).toBe(200);
+
+        const count = instrumented.getCount();
+        await app.close();
+        await instrumented.close();
+        return count;
+      }
+
+      const smallCount = await countQueriesForGet(smallPrId);
+      const largeCount = await countQueriesForGet(largePrId);
+
+      // Exactly 7 queries, on a fresh app/container, for the fullest read path:
+      //   1. postgres-js's own one-time-per-connection `pg_type` array-OID
+      //      discovery query — driver-internal, fires once because
+      //      `createInstrumentedDb` pins the client to a single physical
+      //      connection (see its doc comment); not application SQL.
+      //   2. ReviewService.reapStaleRuns — `buildApp()` runs this once at
+      //      boot, before any request, to fail-over any `agent_runs` row
+      //      left 'running' by a dead process (app.ts's reaper comment);
+      //      unrelated to this PR's own data, but still a fixed per-boot cost.
+      //   3. auth.currentUser        — LocalNoAuthProvider resolves the system
+      //      user (adapters/auth/local.ts); uncached because `buildApp()`
+      //      builds a fresh Container per call.
+      //   4. auth.currentWorkspace   — same provider, resolves the default
+      //      workspace; also uncached for the same reason.
+      //   5. BriefRepository.getPullHeadSha — PK-scoped select on
+      //      pull_requests, used for the 404 check and the staleness compare.
+      //   6. BriefRepository.getStored       — PK select on pr_brief
+      //      (run concurrently with #7 via Promise.all in getBriefView).
+      //   7. BriefRepository.getLatestRunRows — ONE joined
+      //      agent_runs ⋈ reviews ⋈ agents query, ordered and returned as a
+      //      row set — never one query per run.
+      // None of these seven scale with the number of agent runs or changed
+      // files seeded above, so a future N+1 (e.g. resolving each run's agent
+      // name with its own query, or looping per changed file) would inflate
+      // this count and fail this assertion loudly, rather than merely
+      // getting slower.
+      expect(smallCount).toBe(7);
+      expect(largeCount).toBe(7);
+      expect(largeCount).toBe(smallCount); // the real N+1 guard: identical, not just bounded
+    },
+  );
 
   it('GET on an unknown PR id 404s rather than leaking a "no brief" 200 (A01)', async () => {
     const db = pg.handle.db;
