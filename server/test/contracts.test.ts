@@ -7,6 +7,7 @@ import {
   Risks,
   PrHistory,
   SmartDiff,
+  PrBrief,
   Conformance,
   Onboarding,
   EvalRun,
@@ -84,11 +85,27 @@ describe('AI contracts parse fixtures', () => {
         summary: 's',
       }),
     ).not.toThrow();
+    // AC-4: Risk.file_refs now requires at least one grounded file reference
+    // (a structured BriefFileRef, not a bare string) — an empty array is
+    // rejected by the reshaped Risk schema (Risks wraps Risk unchanged).
+    expect(() =>
+      Risks.parse({
+        risks: [
+          {
+            kind: 'security',
+            title: 't',
+            explanation: 'e',
+            severity: 'high',
+            file_refs: [{ path: 'a.ts', start_line: 12, end_line: 20 }],
+          },
+        ],
+      }),
+    ).not.toThrow();
     expect(() =>
       Risks.parse({
         risks: [{ kind: 'security', title: 't', explanation: 'e', severity: 'high', file_refs: [] }],
       }),
-    ).not.toThrow();
+    ).toThrow();
     expect(() =>
       PrHistory.parse({
         history: [
@@ -103,6 +120,38 @@ describe('AI contracts parse fixtures', () => {
         ],
       }),
     ).not.toThrow();
+  });
+
+  it('PrBrief (SPEC-02 shape)', () => {
+    expect(() =>
+      PrBrief.parse({
+        what: 'Adds a per-PR brief.',
+        why: 'Reviewers need a one-glance summary before reading the diff.',
+        risk_level: 'high',
+        risks: [
+          {
+            kind: 'security',
+            title: 'Hardcoded secret',
+            explanation: 'A literal API key is committed.',
+            severity: 'high',
+            file_refs: [{ path: 'src/config.ts', start_line: 12, end_line: 12 }],
+          },
+        ],
+        review_focus: [{ file: { path: 'src/config.ts' }, reason: 'Contains the hardcoded secret.' }],
+      }),
+    ).not.toThrow();
+  });
+
+  it('PrBrief.risk_level rejects a value outside the fixed ordered set (EC-10)', () => {
+    expect(() =>
+      PrBrief.parse({
+        what: 'Adds a per-PR brief.',
+        why: 'Reviewers need a one-glance summary before reading the diff.',
+        risk_level: 'catastrophic',
+        risks: [],
+        review_focus: [],
+      }),
+    ).toThrow();
   });
 
   it('SmartDiff (data.jsx DIFF)', () => {

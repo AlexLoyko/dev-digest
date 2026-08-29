@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Verdict } from './findings.js';
 
 /**
  * PR Brief building blocks: Intent, Blast radius, Risks, PR History,
@@ -47,15 +48,28 @@ export type BlastRadius = z.infer<typeof BlastRadius>;
 export const RiskSeverity = z.enum(['high', 'medium', 'low']);
 export type RiskSeverity = z.infer<typeof RiskSeverity>;
 
+// A grounded pointer into one of the PR's changed files. `start_line` /
+// `end_line` are omitted (not null) when a risk or review-focus entry
+// applies to the whole file rather than a specific range.
+export const BriefFileRef = z.object({
+  path: z.string(),
+  start_line: z.number().int().optional(),
+  end_line: z.number().int().optional(),
+});
+export type BriefFileRef = z.infer<typeof BriefFileRef>;
+
 export const Risk = z.object({
   kind: z.string(),
   title: z.string(),
   explanation: z.string(),
   severity: RiskSeverity,
-  file_refs: z.array(z.string()),
+  file_refs: z.array(BriefFileRef).min(1),
 });
 export type Risk = z.infer<typeof Risk>;
 
+// Orphaned placeholder — no longer referenced by PrBrief (see PrBrief.risks
+// below, which is `array(Risk)` directly). Left in place per R-2; do not
+// delete or repurpose without checking for other consumers.
 export const Risks = z.object({
   risks: z.array(Risk),
 });
@@ -112,14 +126,101 @@ export const SmartDiff = z.object({
 });
 export type SmartDiff = z.infer<typeof SmartDiff>;
 
+// ---- Review focus (pr_brief.json) ----
+export const ReviewFocusEntry = z.object({
+  file: BriefFileRef,
+  reason: z.string(),
+});
+export type ReviewFocusEntry = z.infer<typeof ReviewFocusEntry>;
+
 // ---- Composed PR Brief (pr_brief.json) ----
+// AC-4: exactly one risk level from a fixed ordered set (RiskSeverity);
+// every risk carries a title, an explanation, and at least one grounded
+// file reference (Risk.file_refs.min(1)).
 export const PrBrief = z.object({
-  intent: Intent,
-  blast: BlastRadius,
-  risks: Risks,
-  history: PrHistory,
+  what: z.string(),
+  why: z.string(),
+  risk_level: RiskSeverity,
+  risks: z.array(Risk),
+  review_focus: z.array(ReviewFocusEntry),
 });
 export type PrBrief = z.infer<typeof PrBrief>;
+
+// ---- Brief degradation (AC-14 / AC-15) ----
+// One shared mechanism for "reduced" (token-budget shedding, R-3) and
+// "omitted" (an input was simply absent, e.g. no linked issue) inputs.
+export const BriefDegradedInput = z.enum([
+  'intent',
+  'blast',
+  'linked_issue',
+  'pr_description',
+  'changed_files',
+  'project_context',
+]);
+export type BriefDegradedInput = z.infer<typeof BriefDegradedInput>;
+
+export const BriefDegradation = z.object({
+  input: BriefDegradedInput,
+  action: z.enum(['reduced', 'omitted']),
+  detail: z.string().optional(),
+});
+export type BriefDegradation = z.infer<typeof BriefDegradation>;
+
+// ---- Brief generation metadata (AC-10) ----
+// The brief's OWN generation cost/tokens — distinct from `BriefLatestRun`'s
+// numbers below, which come from a separate agent run against the same PR.
+export const BriefMeta = z.object({
+  head_sha: z.string(),
+  generated_at: z.string(),
+  provider: z.string(),
+  model: z.string(),
+  tokens_in: z.number().int(),
+  tokens_out: z.number().int(),
+  cost_usd: z.number(),
+  duration_ms: z.number().int(),
+  input_tokens_measured: z.boolean(),
+  degraded: z.array(BriefDegradation),
+});
+export type BriefMeta = z.infer<typeof BriefMeta>;
+
+// ---- Stored brief envelope (persisted inside pr_brief.json, R-1) ----
+export const StoredBrief = BriefMeta.extend({
+  schema_version: z.literal(1),
+  brief: PrBrief,
+});
+export type StoredBrief = z.infer<typeof StoredBrief>;
+
+// ---- Latest completed agent run (R-5: assembled server-side, read live) ----
+// A completed run always has a verdict, findings_count and blockers (a
+// failed/cancelled run is excluded entirely upstream — selectLatestCompletedRun
+// returns null instead, see BriefResponse.latest_run below). score / cost_usd /
+// tokens_in / tokens_out are nullable, not defaulted to 0: the underlying
+// columns can genuinely be null (e.g. cost/tokens not tracked for a provider),
+// and coercing to 0 would misrepresent an unmeasured value as a measured one.
+export const BriefLatestRun = z.object({
+  run_id: z.string(),
+  verdict: Verdict,
+  findings_count: z.number().int(),
+  blockers: z.number().int(),
+  score: z.number().nullable(),
+  cost_usd: z.number().nullable(),
+  tokens_in: z.number().int().nullable(),
+  tokens_out: z.number().int().nullable(),
+  agent_name: z.string(),
+});
+export type BriefLatestRun = z.infer<typeof BriefLatestRun>;
+
+// ---- Brief HTTP response (GET /pulls/:id/brief) ----
+// `latest_run` is always present (never omitted) and is explicitly `null`
+// when no completed run exists yet, or the only run failed (EC-5) — the
+// client renders a "no review run yet" state from that null, not an absence.
+export const BriefResponse = z.object({
+  brief: PrBrief,
+  meta: BriefMeta,
+  stale: z.boolean(),
+  latest_run: BriefLatestRun.nullable(),
+});
+export type BriefResponse = z.infer<typeof BriefResponse>;
 
 // ---- Blast Radius HTTP response (GET /pulls/:id/blast) ----
 // Note: two parallel type families exist intentionally:
