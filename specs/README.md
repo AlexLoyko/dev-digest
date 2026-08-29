@@ -69,6 +69,7 @@ never share a number. To allocate one:
 | ID | Spec | Location | Modules | Status |
 |----|------|----------|---------|--------|
 | SPEC-01 | [Project Context](SPEC-01-project-context/SPEC-01.md) | `specs/SPEC-01-project-context/` | server, client | approved |
+| SPEC-02 | [PR Why + Risk Brief](SPEC-02-pr-why-risk-brief/SPEC-02.md) | `specs/SPEC-02-pr-why-risk-brief/` | server, client | approved |
 
 `Status` is one of `draft`, `approved`, `implemented`, `superseded`. Superseding never deletes: the
 replacement names the old spec under `Supersedes:`, and the old row moves to `superseded` with a

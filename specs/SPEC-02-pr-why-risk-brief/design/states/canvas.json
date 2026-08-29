@@ -1,0 +1,14 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html",             "x": 0,    "y": 0,   "w": 1000, "h": 260, "title": "1 - Generating" },
+    { "file": "NoAgentRun.dc.html",       "x": 1080, "y": 0,   "w": 1000, "h": 260, "title": "2 - No agent run" },
+    { "file": "Stale.dc.html",            "x": 0,    "y": 400, "w": 1000, "h": 260, "title": "3 - Stale, regenerating" },
+    { "file": "Failed.dc.html",           "x": 1080, "y": 400, "w": 1000, "h": 260, "title": "4 - Failed, no prior brief" },
+    { "file": "EmptyReviewFocus.dc.html", "x": 0,    "y": 800, "w": 1000, "h": 360, "title": "5 - Review focus, empty" },
+    { "file": "FailedWithPrior.dc.html",  "x": 1080, "y": 800, "w": 1000, "h": 300, "title": "6 - Failed, prior brief kept" }
+  ],
+  "annotations": [
+    { "id": "scope-note", "x": 0, "y": 1260, "w": 460, "text": "States the design screenshot never showed.\n\nEvery card keeps the same anatomy as the loaded state - 40px icon box, flexible main column, right-hand slot - so the card never reflows structurally as it moves between states.\n\nTokens, spacing and type are lifted from client/src/vendor/ui/styles.css and the existing verdict banner, card, section-label, badge, score-ring and empty-state primitives." }
+  ],
+  "launch": { "view": "canvas" }
+}
