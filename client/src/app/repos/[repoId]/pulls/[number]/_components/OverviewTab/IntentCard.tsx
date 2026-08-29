@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { Card, SectionLabel, Button, Skeleton } from "@devdigest/ui";
 import { Icon } from "@devdigest/ui";
 import { useIntent, useRecomputeIntent } from "@/lib/hooks/intent";
+import { RiskAreas } from "./RiskAreas";
 
 interface IntentCardProps {
   prId: string | number;
@@ -126,6 +127,8 @@ export function IntentCard({ prId }: IntentCardProps) {
           )}
         </div>
       )}
+
+      <RiskAreas prId={prId} />
     </Card>
   );
 }

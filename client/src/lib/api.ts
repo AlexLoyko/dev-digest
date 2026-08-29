@@ -5,16 +5,38 @@
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:3001";
 
+/** The known fields of a discriminated failure body that isn't shaped
+ *  `{error: {...}}` — e.g. `POST /pulls/:id/brief/generate`'s `{reason,
+ *  hasPriorBrief}` (SPEC-02, `server/docs/api-contracts.md`). Narrow on
+ *  purpose: callers read `error.body?.reason` without casting through
+ *  `any`, for whichever route's failure shape they happen to know about. */
+export interface ApiErrorBody {
+  reason?: string;
+  hasPriorBrief?: boolean;
+}
+
 export class ApiError extends Error {
   status: number;
   code?: string;
   details?: unknown;
-  constructor(message: string, status: number, code?: string, details?: unknown) {
+  /** The parsed JSON failure body when it is JSON but NOT `{error: {...}}`
+   *  shaped — that shape's own fields land on `code`/`message`/`details`
+   *  above instead, exactly as before. `undefined` for a network failure,
+   *  a non-JSON body, or an `{error: {...}}`-wrapped body. */
+  body?: ApiErrorBody;
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    details?: unknown,
+    body?: ApiErrorBody,
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
     this.details = details;
+    this.body = body;
   }
 }
 
@@ -45,17 +67,26 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     let code: string | undefined;
     let message = `${res.status} ${res.statusText}`;
     let details: unknown;
+    let structuredBody: ApiErrorBody | undefined;
     try {
-      const body = await res.json();
-      if (body?.error) {
-        code = body.error.code;
-        message = body.error.message ?? message;
-        details = body.error.details;
+      const parsedBody = await res.json();
+      if (parsedBody?.error) {
+        code = parsedBody.error.code;
+        message = parsedBody.error.message ?? message;
+        details = parsedBody.error.details;
+      } else if (parsedBody != null && typeof parsedBody === "object") {
+        // A JSON failure body shaped differently from `{error: {...}}` —
+        // e.g. the brief-generation route's discriminated `{reason,
+        // hasPriorBrief}` body. There's no known `message` field on this
+        // shape, so `message` stays the generic status-line fallback; the
+        // body itself is preserved so a caller that knows this route's
+        // shape can still read it off `ApiError.body`.
+        structuredBody = parsedBody as ApiErrorBody;
       }
     } catch {
       /* non-JSON error body */
     }
-    throw new ApiError(message, res.status, code, details);
+    throw new ApiError(message, res.status, code, details, structuredBody);
   }
 
   if (res.status === 204) return undefined as T;

@@ -25,16 +25,24 @@ Each page, its data sources, and TanStack Query keys.
 **Query keys:** `["repo", id]`, `["pulls", repoId]`
 **Actions:** "Import PRs" button → `POST /repos/:id/pulls/import`
 
-## `/pulls/:id` — PR Detail
+## `/repos/:repoId/pulls/:number` — PR Detail
 
-**Component:** `app/pulls/[id]/page.tsx` (RSC shell + client detail)
+<!-- updated from: client/src/app/repos/[repoId]/pulls/[number]/page.tsx, client/src/app/repos/[repoId]/pulls/[number]/_components/OverviewTab/OverviewTab.tsx -->
+
+**Component:** `app/repos/[repoId]/pulls/[number]/page.tsx` (client) → Overview tab delegates to
+`_components/OverviewTab`, which mounts `BriefCard` and `ReviewFocusCard` (SPEC-02).
 **Data:**
 - `GET /pulls/:id` — PR with diff
 - `GET /pulls/:id/reviews` — list of reviews with findings
-**Query keys:** `["pull", id]`, `["reviews", pullId]`
+- `GET /pulls/:id/brief` — the PR brief (what/why/risk areas/review focus); `POST
+  /pulls/:id/brief/generate` — explicit (or automatic-on-stale) regeneration
+**Query keys:** `["pull", id]`, `["reviews", pullId]`, `["brief", prId]`
 **Actions:**
 - "Run Review" → `POST /pulls/:id/review` → receives `runId` → subscribes to `useRunEvents(runId)`
 - Reviews list updates via `invalidateQueries(["reviews", pullId])` on `completed` SSE event
+- On a run completing (`onRunDone`), the page also invalidates `["brief", prId]` — a newly
+  completed run can change the brief card's verdict headline (AC-19), so it must refetch alongside
+  the run history rather than wait for a reload
 
 ## `/agents` — Agent Management
 

@@ -11,7 +11,11 @@
     "failure": {
       "headline": "Couldn't generate brief",
       "chipWithPrior": "Couldn't update — showing the previous brief",
-      "retry": "Try again"
+      "retry": "Try again",
+      "cause": {
+        "model_error": "The model call didn't complete, so nothing was generated.",
+        "invalid_result": "The model replied, but the response didn't match the expected shape, so nothing was stored."
+      }
     },
     "noRun": {
       "chip": "No review run yet"

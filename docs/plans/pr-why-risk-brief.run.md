@@ -30,6 +30,15 @@ Pre-run commits: 42f60c8 spec · c6d5dc9 AC-23 · 0ef1464 plan
 - T16 BriefCard takes repoFullName + headSha as props for the same reason.
 - T8 consumes fitToBudget's THIRD field `tokens` for BriefMeta.input_tokens_measured.
 
+## For plan-verifier (Stage 2)
+- AC-16 says "present a plain-language statement of why generation failed" for BOTH
+  failure branches. The no-prior branch now renders reason-keyed copy. The WITH-PRIOR
+  branch renders only the chip "Couldn't update - showing the previous brief" and no
+  cause sentence - which matches design/states/FailedWithPrior.dc.html exactly.
+  Judge whether the chip satisfies the criterion or whether that branch needs a cause
+  sentence too (which would deviate from the approved artboard). Flagged by the
+  implementer, not silently expanded.
+
 ## For the architecture review
 - T9 service.ts `classifyThrow()` separates invalid_result from model_error by testing
   the error message for the substring "schema". Defensible (MockLLMProvider and the real

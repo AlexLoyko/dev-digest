@@ -56,6 +56,12 @@ export default function PRDetailPage() {
   const invalidateRunHistory = () => {
     if (prId) qc.invalidateQueries({ queryKey: ["pr-runs", prId] });
   };
+  // A completed run can change the brief's headline (its verdict takes over
+  // from the risk-level fallback, AC-19) — refetch the brief alongside the
+  // run history so that swap arrives without a reload.
+  const invalidateBrief = () => {
+    if (prId) qc.invalidateQueries({ queryKey: ["brief", prId] });
+  };
 
   const tab = search.get("tab") ?? "overview";
   const traceRunId = search.get("trace");
@@ -134,7 +140,14 @@ export default function PRDetailPage() {
       />
 
       <div style={{ padding: "24px 32px 44px", display: "flex", flexDirection: "column", gap: 24, maxWidth: 1080, margin: "0 auto" }}>
-        {tab === "overview" && <OverviewTab prBody={pr.body} prId={prId} />}
+        {tab === "overview" && (
+          <OverviewTab
+            prBody={pr.body}
+            prId={prId}
+            repoFullName={repoFullName}
+            headSha={pr.head_sha}
+          />
+        )}
 
         {tab === "findings" && (
           <FindingsTab
@@ -156,6 +169,7 @@ export default function PRDetailPage() {
             onRunDone={() => {
               invalidateActiveRuns();
               invalidateRunHistory();
+              invalidateBrief();
               refetchReviews();
             }}
           />
