@@ -108,19 +108,10 @@ export const s = {
     minWidth: "7ch",
     textAlign: "right",
   } satisfies CSSProperties,
-  previewBlock: {
-    marginTop: 8,
-    padding: 10,
-    borderRadius: 6,
-    background: "var(--bg-surface)",
-    border: "1px solid var(--border)",
-    fontSize: 12,
-    fontFamily: "var(--font-mono, monospace)",
-    whiteSpace: "pre-wrap",
-    wordBreak: "break-word",
-    maxHeight: 220,
-    overflow: "auto",
-  } satisfies CSSProperties,
+  // Loading/error state text inside the preview drawer's body — the
+  // drawer's own padding handles spacing, so this only needs the muted
+  // status-text treatment (no border/background of its own).
+  previewStatus: { fontSize: 13, color: "var(--text-muted)", margin: 0 } satisfies CSSProperties,
   rowGroup: { display: "flex", flexDirection: "column", flex: 1, minWidth: 0 } satisfies CSSProperties,
   // `chipRow` no longer carries a reorder-buttons slot (drag/keyboard
   // reorder now lives entirely on the leading handle, outside `chipRow`,

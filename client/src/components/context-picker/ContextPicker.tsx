@@ -9,7 +9,7 @@
 import React from "react";
 import { useTranslations } from "next-intl";
 import type { SpecFile } from "@devdigest/shared";
-import { Badge, Button, Card, Icon } from "@devdigest/ui";
+import { Badge, Button, Card, Drawer, Icon, Markdown } from "@devdigest/ui";
 import { useContextDocument } from "@/lib/hooks";
 import {
   buildDisplayRows,
@@ -64,6 +64,10 @@ export function ContextPicker({
 
   const [search, setSearch] = React.useState("");
   const [announcement, setAnnouncement] = React.useState("");
+  // The path currently shown in the preview drawer — one drawer for the
+  // whole list (same shape as `dragOverPath` below): opening a different
+  // row's preview replaces the contents rather than opening a second
+  // drawer, and `null` means the drawer is closed.
   const [previewPath, setPreviewPath] = React.useState<string | null>(null);
   // Keyboard reorder (NFR-4): `grabbedPath` is the row currently "picked
   // up" via Space/Enter on its handle; `grabSnapshot` is `attachedPaths` at
@@ -147,6 +151,32 @@ export function ContextPicker({
     }
   }
 
+  // Escape precedence: the drawer closes first. `Drawer` itself has no
+  // Escape handling (its scrim only closes on click — see Drawer.tsx), so
+  // this call site owns it. A capture-phase `window` listener — registered
+  // only while the drawer is open — intercepts Escape before it ever
+  // reaches the grabbed row's handle button, whose own `onKeyDown` (above)
+  // is what cancels a keyboard grab. `stopPropagation` during capture keeps
+  // the event from reaching that handler at all, so one Escape press never
+  // both closes the drawer *and* cancels a grab. If a row happens to be
+  // grabbed while the drawer is open, that grab is left untouched — not
+  // cancelled — by this keypress; a second Escape, pressed once the drawer
+  // is closed (and this listener has unmounted), reaches the handle
+  // normally and cancels the grab as it always has. Rationale: the drawer
+  // is the topmost, most recently opened modal-like surface, so it owns
+  // the next Escape the same way a modal would.
+  React.useEffect(() => {
+    if (!previewPath) return;
+    function handleWindowKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      setPreviewPath(null);
+    }
+    window.addEventListener("keydown", handleWindowKeyDown, true);
+    return () => window.removeEventListener("keydown", handleWindowKeyDown, true);
+  }, [previewPath]);
+
   // Every row is a native HTML5 drag source now — not just the attached
   // rows' handle button — so `onDragStart` lives on the `<li>` and fires
   // for both attached and unattached rows. The handle stays as a real
@@ -212,8 +242,9 @@ export function ContextPicker({
   }
 
   return (
-    <Card>
-      <div style={s.root}>
+    <>
+      <Card>
+        <div style={s.root}>
         <div style={s.header}>
           <div style={s.headerLeft}>
             <h3 style={s.heading}>{t("heading")}</h3>
@@ -241,7 +272,6 @@ export function ContextPicker({
               <DocumentRow
                 key={row.path}
                 row={row}
-                repoId={repoId}
                 isAttached={isAttached}
                 isMissing={missingSet.has(row.path)}
                 position={attachedPaths.indexOf(row.path)}
@@ -293,8 +323,18 @@ export function ContextPicker({
         <div id={instructionsId} style={s.srOnly}>
           {tContext("reorder.instructions")}
         </div>
-      </div>
-    </Card>
+        </div>
+      </Card>
+      {/* One drawer for the whole list, not one per row — `previewPath` is
+          the single source of truth for "which document, if any, is being
+          previewed". Rendered as a sibling of `Card` (matching how
+          `RunTraceDrawer` is mounted alongside the page it belongs to)
+          since `Drawer` is a fixed-position overlay; nesting it inside the
+          card would add nothing and risks an ancestor clipping it. */}
+      {previewPath && (
+        <ContextDocumentDrawer repoId={repoId} path={previewPath} onClose={() => setPreviewPath(null)} />
+      )}
+    </>
   );
 }
 
@@ -304,7 +344,6 @@ export function ContextPicker({
 
 interface DocumentRowProps {
   row: DisplayRow;
-  repoId: string;
   isAttached: boolean;
   isMissing: boolean;
   position: number;
@@ -329,7 +368,6 @@ interface DocumentRowProps {
 
 function DocumentRow({
   row,
-  repoId,
   isAttached,
   isMissing,
   position,
@@ -438,10 +476,6 @@ function DocumentRow({
           </span>
           {dir && <span style={s.dirPrefix}>{dir}</span>}
         </span>
-        {/* Mounted only while open — the fetch it owns is gated on that,
-            and its loading/success/error re-renders stay local to this
-            subtree instead of bubbling into DocumentRow. */}
-        {previewOpen && <DocumentPreview repoId={repoId} path={row.path} />}
       </div>
 
       <div style={s.chipRow}>
@@ -499,20 +533,47 @@ function DocumentRow({
 }
 
 // ---------------------------------------------------------------------------
-// Preview — owns its own fetch. The list endpoint that supplies `documents`
-// always returns `content: null` (server/src/modules/context/service.ts);
-// only `GET /repos/:id/context/document?path=` populates it. Rendered (and
-// therefore mounted) only when a row's preview is open, so `useContextDocument`
-// stays disabled — and never fires — until the user actually asks for it,
-// and only for that one path.
+// Preview drawer — one for the whole list (see `previewPath` above). Header
+// splits the path the same way the row does: filename as `title`, directory
+// prefix as `subtitle`. The scrim already closes on click (Drawer.tsx);
+// Escape is handled by the `window` listener in `ContextPicker` above, not
+// here, so it can take precedence over an in-progress keyboard grab.
 // ---------------------------------------------------------------------------
 
-function DocumentPreview({ repoId, path }: { repoId: string; path: string }) {
+function ContextDocumentDrawer({
+  repoId,
+  path,
+  onClose,
+}: {
+  repoId: string;
+  path: string;
+  onClose: () => void;
+}) {
+  const { dir, name } = splitPathParts(path);
+  return (
+    <Drawer title={name} subtitle={dir || undefined} onClose={onClose}>
+      <ContextDocumentBody repoId={repoId} path={path} />
+    </Drawer>
+  );
+}
+
+// Owns its own fetch. The list endpoint that supplies `documents` always
+// returns `content: null` (server/src/modules/context/service.ts); only
+// `GET /repos/:id/context/document?path=` populates it. Mounted (and
+// therefore fetching) only while the drawer holding it is open — see the
+// `previewPath &&` guard in `ContextPicker` — so `useContextDocument` stays
+// disabled, and never fires, until the user actually opens a preview, and
+// only for that one path. Rendered through the shared, hardened `Markdown`
+// primitive (not a raw `<pre>`/`dangerouslySetInnerHTML`) — document bodies
+// are repository-controlled text, and `Markdown` is what neutralizes an
+// unsafe-scheme link (`javascript:`, `data:`, …) into inert text instead of
+// an active one; see its own comment for the mechanism.
+function ContextDocumentBody({ repoId, path }: { repoId: string; path: string }) {
   const tCommon = useTranslations("common");
   const { data, isLoading, isError } = useContextDocument(repoId, path);
 
-  if (isLoading) return <p style={s.previewBlock}>{tCommon("states.loading")}</p>;
-  if (isError) return <p style={s.previewBlock}>{tCommon("states.error")}</p>;
+  if (isLoading) return <p style={s.previewStatus}>{tCommon("states.loading")}</p>;
+  if (isError) return <p style={s.previewStatus}>{tCommon("states.error")}</p>;
   if (!data?.content) return null;
-  return <pre style={s.previewBlock}>{data.content}</pre>;
+  return <Markdown>{data.content}</Markdown>;
 }
