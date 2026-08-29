@@ -20,7 +20,11 @@
  * with `.` (`.claude`, `.github`, `.git`, ...) are never walked, in addition
  * to `EXCLUDED_DIRS` — without this, tooling/config directories would
  * dominate the discovered set now that the walk isn't confined to
- * specs/docs/insights subtrees.
+ * specs/docs/insights subtrees. `CLAUDE.md` / `AGENTS.md` are excluded the
+ * same way by filename, at any depth (`isExcludedFilename`, `constants.ts`)
+ * — they are per-package agent tooling files, not directory-shaped, so the
+ * dot-directory rule can't catch them. An excluded file is dropped before it
+ * becomes a candidate at all — never emitted as a record.
  *
  * Deliberately different from walk.ts: oversize files are NOT dropped
  * silently. They are still emitted as a record with `excludedReason` set and
@@ -43,7 +47,7 @@ import { join, relative, sep } from 'node:path';
 import { EXCLUDED_DIRS, MAX_FILE_SIZE, MAX_INDEXED_FILES } from '../repo-intel/constants.js';
 import { regexScan, type ThreatLevel } from '../skills/scanner.js';
 import type { Tokenizer } from '../../adapters/tokenizer/index.js';
-import { deriveCategory, type ContextRoot } from './constants.js';
+import { deriveCategory, isExcludedFilename, type ContextRoot } from './constants.js';
 
 const EXCLUDED_SET: ReadonlySet<string> = new Set(EXCLUDED_DIRS);
 
@@ -197,6 +201,10 @@ async function walkDir(cloneRoot: string, dir: string, out: Candidate[]): Promis
 
     if (!entry.isFile()) continue;
     if (!name.toLowerCase().endsWith('.md')) continue;
+    // Agent tooling files (CLAUDE.md, AGENTS.md), any depth — not a
+    // candidate at all, never a record (never `excludedReason`; that's
+    // reserved for in-scope files that couldn't be read, EC-4).
+    if (isExcludedFilename(name)) continue;
 
     const abs = join(dir, name);
     const rel = relative(cloneRoot, abs).split(sep).join('/');

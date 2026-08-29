@@ -44,6 +44,28 @@ export function isContextRootDir(dirName: string): dirName is ContextRootDir {
 }
 
 /**
+ * Filenames (case-insensitive, matched on basename only — any depth) that
+ * are agent tooling, not project context, and must never become a candidate
+ * document. `.claude/` is already excluded by the walk's dot-directory rule
+ * (`scanner.ts`); these two are the per-package equivalent — this repo alone
+ * has five `CLAUDE.md` files (root, client/, server/, reviewer-core/, e2e/)
+ * that a directory-shaped rule cannot catch. Deliberately narrow — do not
+ * add `CHANGELOG.md`, `LICENSE.md`, or anything else here.
+ */
+export const EXCLUDED_FILENAMES = ['claude.md', 'agents.md'] as const;
+
+const EXCLUDED_FILENAME_SET: ReadonlySet<string> = new Set(EXCLUDED_FILENAMES);
+
+/**
+ * True when `filename` (a single path segment, matched on basename — never a
+ * full path) is one of the excluded agent-tooling filenames, case-insensitive
+ * (same convention as `deriveCategory`'s `readme.md` check).
+ */
+export function isExcludedFilename(filename: string): boolean {
+  return EXCLUDED_FILENAME_SET.has(filename.toLowerCase());
+}
+
+/**
  * Derive a discovered document's category purely from its repo-relative
  * path (forward-slash separated, no leading slash, filename last). Pure —
  * no I/O, no filesystem access. Precedence:
