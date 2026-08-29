@@ -38,7 +38,7 @@ export const repoContextDocuments = pgTable(
       .notNull()
       .references(() => repos.id, { onDelete: 'cascade' }),
     path: text('path').notNull(),
-    root: text('root', { enum: ['specs', 'docs', 'insights'] }).notNull(),
+    root: text('root', { enum: ['specs', 'docs', 'insights', 'readme', 'other'] }).notNull(),
     sizeBytes: integer('size_bytes').notNull().default(0),
     tokens: integer('tokens').notNull().default(0),
     tokensApproximate: boolean('tokens_approximate').notNull().default(false),

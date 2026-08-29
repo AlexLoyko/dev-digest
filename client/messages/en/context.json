@@ -10,9 +10,8 @@
   "kb": "{kb}kb",
   "empty": {
     "title": "No spec files yet",
-    "body": "Drop your PRDs, tech specs, and acceptance criteria under specs/, docs/, or insights/ — matched at any depth. Every agent and the PR brief read them as grounding context."
+    "body": "Drop your PRDs, tech specs, and acceptance criteria anywhere in the repo, outside excluded and dot-directories — matched at any depth. Every agent and the PR brief read them as grounding context."
   },
-  "roots": "Scanned roots",
   "notCloned": {
     "title": "Repo not cloned",
     "body": "Clone this repo locally to scan specs/, docs/, and insights/ for project context."
@@ -20,7 +19,9 @@
   "sourceRoot": {
     "specs": "specs/",
     "docs": "docs/",
-    "insights": "insights/"
+    "insights": "insights/",
+    "readme": "readme",
+    "other": "other"
   },
   "usedByAgents": "{count, plural, one {Used by # agent} other {Used by # agents}}",
   "tokens": "{count, plural, one {# token} other {# tokens}}",

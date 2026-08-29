@@ -39,7 +39,7 @@ import type { ContextScan } from './repository.js';
 import { scanClone } from './scanner.js';
 import { buildEffectiveSet } from './ordering.js';
 import { isSafeContextPath, resolveContained } from './path-guard.js';
-import { CONTEXT_ROOT_DIRS, isContextRootDir, type ContextRoot } from './constants.js';
+import { deriveCategory, type ContextRoot } from './constants.js';
 import { buildProjectContextSection } from '../../platform/prompt.js';
 
 /** EC-1: repo has no local clone yet. Only `idle`/`parsing`/`done`/`error` are
@@ -177,11 +177,6 @@ export class ContextService {
     const documents = await this.container.contextRepo.listDocuments(repoId);
     const record = documents.find((d) => d.path === relPath);
     const root = record?.root ?? deriveRoot(relPath);
-    if (!root) {
-      // Safe, on-disk, contained .md file — but not under any context root,
-      // so it is not a context document.
-      throw new NotFoundError('Context document not found');
-    }
 
     const content = await this.container.git.readFile(
       { owner: repo.owner, name: repo.name },
@@ -438,19 +433,17 @@ function scanToIndexStatus(scan: ContextScan | undefined): IndexStatus {
   return { status: scan.status, pct, message: scan.message, chunks_indexed: null };
 }
 
-/** EC-2: even a zero-document scan names the roots that were scanned. */
+/** EC-2: even a zero-document scan reports what happened. No longer names
+ * fixed roots — the scan now covers the whole clone, not three fixed
+ * subtrees (see scanner.ts's widened scope). */
 function buildScanMessage(fileCount: number, skippedTooLarge: number): string {
-  const roots = CONTEXT_ROOT_DIRS.join(', ');
   const suffix = skippedTooLarge > 0 ? `, ${skippedTooLarge} skipped (too large)` : '';
-  return `Scanned ${roots} — found ${fileCount} document${fileCount === 1 ? '' : 's'}${suffix}`;
+  return `Scanned repository — found ${fileCount} document${fileCount === 1 ? '' : 's'}${suffix}`;
 }
 
-/** Derive a document's context root purely from its path (outermost matching
- * segment wins, mirroring scanner.ts's `activeRoot` propagation) — used only
- * as a fallback when a path is not (yet) in the persisted document set. */
-function deriveRoot(relPath: string): ContextRoot | null {
-  for (const segment of relPath.split('/').slice(0, -1)) {
-    if (isContextRootDir(segment)) return segment;
-  }
-  return null;
+/** Derive a document's category purely from its path — delegates to
+ * `deriveCategory` (constants.ts); used only as a fallback when a path is
+ * not (yet) in the persisted document set. */
+function deriveRoot(relPath: string): ContextRoot {
+  return deriveCategory(relPath);
 }

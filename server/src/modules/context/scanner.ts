@@ -1,12 +1,12 @@
 /**
  * scanner.ts — Project Context module: clone-tree discovery of context
- * documents (specs/docs/insights markdown).
+ * documents (every markdown file in the clone).
  *
- * Walks a repo clone and returns one record per discovered `.md` file living
- * under a directory named `specs`, `docs`, or `insights` at ANY depth
- * (glob-equivalent: `**\/{specs,docs,insights}/**\/*.md` — confirmed with the
- * user 2026-08-28). The depth predicate itself lives in `constants.ts`
- * (`isContextRootDir`) — this file only applies it while walking.
+ * Walks a repo clone and returns one record per discovered `.md` file
+ * anywhere in the clone, except beneath an excluded directory (AC-1). Each
+ * record's `root` is a category derived purely from its path by
+ * `deriveCategory` (`constants.ts`) — this file only calls that function
+ * once per discovered file, it holds none of the category logic itself.
  *
  * Reused verbatim from repo-intel:
  *  - `EXCLUDED_DIRS` / `MAX_FILE_SIZE` / `MAX_INDEXED_FILES` — never
@@ -15,6 +15,12 @@
  *    follow symlinks, unreadable dirs swallowed) mirrors
  *    `repo-intel/pipeline/walk.ts` — deliberately does NOT honor
  *    `.gitignore`, same as that module.
+ *
+ * Widened scope, added 2026-08-28 (NFR-2): directories whose name begins
+ * with `.` (`.claude`, `.github`, `.git`, ...) are never walked, in addition
+ * to `EXCLUDED_DIRS` — without this, tooling/config directories would
+ * dominate the discovered set now that the walk isn't confined to
+ * specs/docs/insights subtrees.
  *
  * Deliberately different from walk.ts: oversize files are NOT dropped
  * silently. They are still emitted as a record with `excludedReason` set and
@@ -37,7 +43,7 @@ import { join, relative, sep } from 'node:path';
 import { EXCLUDED_DIRS, MAX_FILE_SIZE, MAX_INDEXED_FILES } from '../repo-intel/constants.js';
 import { regexScan, type ThreatLevel } from '../skills/scanner.js';
 import type { Tokenizer } from '../../adapters/tokenizer/index.js';
-import { isContextRootDir, type ContextRoot } from './constants.js';
+import { deriveCategory, type ContextRoot } from './constants.js';
 
 const EXCLUDED_SET: ReadonlySet<string> = new Set(EXCLUDED_DIRS);
 
@@ -45,7 +51,7 @@ const EXCLUDED_SET: ReadonlySet<string> = new Set(EXCLUDED_DIRS);
 export interface ContextDocumentRecord {
   /** Path relative to `cloneRoot`, forward-slash separated. */
   path: string;
-  /** The context-root directory name this document was discovered under. */
+  /** The category derived from this document's path (see `deriveCategory`). */
   root: ContextRoot;
   sizeBytes: number;
   /** 0 when the file was excluded from scanning (e.g. oversize). */
@@ -58,7 +64,7 @@ export interface ContextDocumentRecord {
 }
 
 export interface ScanStats {
-  /** .md files found under a context-root dir, before size/bound filtering. */
+  /** .md files found anywhere in the clone (excluded dirs aside), before size/bound filtering. */
   totalCandidates: number;
   /** Candidates over MAX_FILE_SIZE — still emitted as a record (EC-4), just counted here too. */
   skippedTooLarge: number;
@@ -90,7 +96,7 @@ export async function scanClone(
   tokenizer: Tokenizer,
 ): Promise<ScanCloneResult> {
   const candidates: Candidate[] = [];
-  await walkDir(cloneRoot, cloneRoot, null, candidates);
+  await walkDir(cloneRoot, cloneRoot, candidates);
 
   // Stable order (alphabetical relpath), same rationale as walk.ts: keeps
   // "first N when bounded" reproducible across runs.
@@ -168,12 +174,7 @@ export async function scanClone(
   return { documents, stats };
 }
 
-async function walkDir(
-  cloneRoot: string,
-  dir: string,
-  activeRoot: ContextRoot | null,
-  out: Candidate[],
-): Promise<void> {
+async function walkDir(cloneRoot: string, dir: string, out: Candidate[]): Promise<void> {
   let entries: Dirent[];
   try {
     entries = (await readdir(dir, { withFileTypes: true })) as Dirent[];
@@ -189,21 +190,16 @@ async function walkDir(
 
     if (entry.isDirectory()) {
       if (EXCLUDED_SET.has(name)) continue; // basename match, any depth
-      // Once inside a context-root dir, everything nested below keeps that
-      // SAME root even if a deeper directory also happens to match
-      // isContextRootDir — outermost match wins, so root reflects the
-      // subtree the document actually lives in.
-      const nextRoot = activeRoot ?? (isContextRootDir(name) ? name : null);
-      await walkDir(cloneRoot, join(dir, name), nextRoot, out);
+      if (name.startsWith('.')) continue; // NFR-2: dot-directories (.claude, .github, ...) never walked
+      await walkDir(cloneRoot, join(dir, name), out);
       continue;
     }
 
     if (!entry.isFile()) continue;
-    if (activeRoot === null) continue; // not nested under any context-root dir
     if (!name.toLowerCase().endsWith('.md')) continue;
 
     const abs = join(dir, name);
     const rel = relative(cloneRoot, abs).split(sep).join('/');
-    out.push({ abs, rel, root: activeRoot });
+    out.push({ abs, rel, root: deriveCategory(rel) });
   }
 }

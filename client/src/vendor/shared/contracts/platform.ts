@@ -250,7 +250,7 @@ export const SpecFile = z.object({
   size: z.number().int().nullish(),
   updated_at: z.string().nullish(),
   /** Which Project Context root the file was discovered under. */
-  root: z.enum(['specs', 'docs', 'insights']),
+  root: z.enum(['specs', 'docs', 'insights', 'readme', 'other']),
   tokens: z.number().int().nullish(),
   tokens_approximate: z.boolean().nullish(),
   threat_level: z.enum(['unknown', 'safe', 'suspicious', 'dangerous']).nullish(),

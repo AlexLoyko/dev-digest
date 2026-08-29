@@ -15,6 +15,7 @@ import {
   Settings,
   Repo,
   PrDetail,
+  SpecFile,
 } from '@devdigest/shared';
 
 /**
@@ -219,5 +220,26 @@ describe('platform DTOs', () => {
         commits: [],
       }),
     ).not.toThrow();
+  });
+
+  it('SpecFile.root accepts all 5 values (specs/docs/insights pre-existing + readme/other widened per NFR-9)', () => {
+    const roots = ['specs', 'docs', 'insights', 'readme', 'other'] as const;
+    for (const root of roots) {
+      expect(() =>
+        SpecFile.parse({
+          path: `${root}/example.md`,
+          root,
+        }),
+      ).not.toThrow();
+    }
+  });
+
+  it('SpecFile.root rejects a value outside the 5-member enum', () => {
+    expect(() =>
+      SpecFile.parse({
+        path: 'other/example.md',
+        root: 'not-a-real-root',
+      }),
+    ).toThrow();
   });
 });
