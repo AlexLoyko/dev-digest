@@ -17,6 +17,7 @@ import {
   filterDisplayRows,
   isExcluded,
   moveAttachedPath,
+  reorderAttachedPath,
   resolveThreatLevel,
   splitPathParts,
   sumAttachedTokens,
@@ -26,7 +27,7 @@ import {
   type DisplayRow,
   type MoveDirection,
 } from "./helpers";
-import { s, reorderBtnStyle, reorderGroupRevealStyle, sourceRootColor } from "./styles";
+import { s, dragHandleButtonStyle, rowDragOverStyle, sourceRootColor } from "./styles";
 
 export interface ContextPickerProps {
   documents: SpecFile[];
@@ -63,6 +64,17 @@ export function ContextPicker({
   const [search, setSearch] = React.useState("");
   const [announcement, setAnnouncement] = React.useState("");
   const [previewPath, setPreviewPath] = React.useState<string | null>(null);
+  // Keyboard reorder (NFR-4): `grabbedPath` is the row currently "picked
+  // up" via Space/Enter on its handle; `grabSnapshot` is `attachedPaths` at
+  // the moment of pick-up, restored verbatim if the user presses Escape.
+  const [grabbedPath, setGrabbedPath] = React.useState<string | null>(null);
+  const [grabSnapshot, setGrabSnapshot] = React.useState<string[] | null>(null);
+  // Native HTML5 drag (mouse pointer): `draggingPath` is the handle
+  // currently being dragged, `dragOverPath` the row currently under the
+  // pointer — both purely visual/interaction state, never persisted.
+  const [draggingPath, setDraggingPath] = React.useState<string | null>(null);
+  const [dragOverPath, setDragOverPath] = React.useState<string | null>(null);
+  const instructionsId = React.useId();
 
   const missingSet = new Set(missingPaths);
   const allRows = buildDisplayRows(documents, attachedPaths);
@@ -79,12 +91,80 @@ export function ContextPicker({
     onChange(toggleAttachment(attachedPaths, row.path));
   }
 
-  function handleMove(path: string, direction: MoveDirection) {
+  function announceMove(path: string, position: number, total: number) {
+    const { name } = splitPathParts(path);
+    setAnnouncement(t("orderAnnouncement", { name, position, total }));
+  }
+
+  function handleArrowMove(path: string, direction: MoveDirection) {
     const result = moveAttachedPath(attachedPaths, path, direction);
     if (!result) return;
     onChange(result.paths);
-    const { name } = splitPathParts(path);
-    setAnnouncement(t("orderAnnouncement", { name, position: result.position, total: result.total }));
+    announceMove(path, result.position, result.total);
+  }
+
+  function handleGrabToggle(path: string) {
+    if (grabbedPath === path) {
+      setGrabbedPath(null);
+      setGrabSnapshot(null);
+    } else {
+      setGrabbedPath(path);
+      setGrabSnapshot(attachedPaths);
+    }
+  }
+
+  function handleCancelGrab(path: string) {
+    if (grabSnapshot) {
+      onChange(grabSnapshot);
+      const { name } = splitPathParts(path);
+      setAnnouncement(
+        tContext("reorder.cancelled", { name, position: grabSnapshot.indexOf(path) + 1, total: grabSnapshot.length }),
+      );
+    }
+    setGrabbedPath(null);
+    setGrabSnapshot(null);
+  }
+
+  function handleHandleKeyDown(e: React.KeyboardEvent<HTMLButtonElement>, path: string) {
+    if (grabbedPath === path) {
+      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        e.preventDefault();
+        handleArrowMove(path, e.key === "ArrowUp" ? "up" : "down");
+      } else if (e.key === " " || e.key === "Spacebar" || e.key === "Enter") {
+        e.preventDefault();
+        setGrabbedPath(null);
+        setGrabSnapshot(null);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        handleCancelGrab(path);
+      }
+      return;
+    }
+    if (e.key === " " || e.key === "Spacebar" || e.key === "Enter") {
+      e.preventDefault();
+      handleGrabToggle(path);
+    }
+  }
+
+  function handleDragStart(path: string) {
+    setDraggingPath(path);
+    // A mouse drag takes over from any in-progress keyboard grab.
+    setGrabbedPath(null);
+    setGrabSnapshot(null);
+  }
+
+  function handleDragEnd() {
+    setDraggingPath(null);
+    setDragOverPath(null);
+  }
+
+  function handleDropOn(targetPath: string, sourcePath: string) {
+    setDraggingPath(null);
+    setDragOverPath(null);
+    const result = reorderAttachedPath(attachedPaths, sourcePath, targetPath);
+    if (!result) return;
+    onChange(result.paths);
+    announceMove(sourcePath, result.position, result.total);
   }
 
   return (
@@ -111,24 +191,45 @@ export function ContextPicker({
         </span>
 
         <ul style={s.list}>
-          {rows.map((row) => (
-            <DocumentRow
-              key={row.path}
-              row={row}
-              repoId={repoId}
-              isAttached={attachedPaths.includes(row.path)}
-              isMissing={missingSet.has(row.path)}
-              position={attachedPaths.indexOf(row.path)}
-              total={attachedPaths.length}
-              busy={busy}
-              previewOpen={previewPath === row.path}
-              onTogglePreview={() => setPreviewPath((p) => (p === row.path ? null : row.path))}
-              onToggle={() => handleToggle(row)}
-              onMove={(direction) => handleMove(row.path, direction)}
-              t={t}
-              tContext={tContext}
-            />
-          ))}
+          {rows.map((row) => {
+            const isAttached = attachedPaths.includes(row.path);
+            return (
+              <DocumentRow
+                key={row.path}
+                row={row}
+                repoId={repoId}
+                isAttached={isAttached}
+                isMissing={missingSet.has(row.path)}
+                position={attachedPaths.indexOf(row.path)}
+                total={attachedPaths.length}
+                busy={busy}
+                previewOpen={previewPath === row.path}
+                onTogglePreview={() => setPreviewPath((p) => (p === row.path ? null : row.path))}
+                onToggle={() => handleToggle(row)}
+                isGrabbed={grabbedPath === row.path}
+                isDragging={draggingPath === row.path}
+                isDragOver={dragOverPath === row.path}
+                instructionsId={instructionsId}
+                onHandleKeyDown={(e) => handleHandleKeyDown(e, row.path)}
+                onDragStartHandle={() => handleDragStart(row.path)}
+                onDragEndHandle={handleDragEnd}
+                onRowDragOver={(e) => {
+                  if (!isAttached || !draggingPath || draggingPath === row.path) return;
+                  e.preventDefault();
+                  setDragOverPath(row.path);
+                }}
+                onRowDragLeave={() => setDragOverPath((p) => (p === row.path ? null : p))}
+                onRowDrop={(e) => {
+                  if (!isAttached) return;
+                  e.preventDefault();
+                  const sourcePath = e.dataTransfer.getData("text/plain");
+                  if (sourcePath) handleDropOn(row.path, sourcePath);
+                }}
+                t={t}
+                tContext={tContext}
+              />
+            );
+          })}
           {rows.length === 0 && <li style={s.empty}>{tCommon("states.empty")}</li>}
         </ul>
 
@@ -142,6 +243,12 @@ export function ContextPicker({
 
         <div aria-live="polite" style={s.srOnly}>
           {announcement}
+        </div>
+        {/* Shared, visually hidden instructions referenced by every
+            attached row's drag handle via aria-describedby — one copy
+            rather than duplicating the same long text on every row. */}
+        <div id={instructionsId} style={s.srOnly}>
+          {tContext("reorder.instructions")}
         </div>
       </div>
     </Card>
@@ -163,7 +270,16 @@ interface DocumentRowProps {
   previewOpen: boolean;
   onTogglePreview: () => void;
   onToggle: () => void;
-  onMove: (direction: MoveDirection) => void;
+  isGrabbed: boolean;
+  isDragging: boolean;
+  isDragOver: boolean;
+  instructionsId: string;
+  onHandleKeyDown: (e: React.KeyboardEvent<HTMLButtonElement>) => void;
+  onDragStartHandle: () => void;
+  onDragEndHandle: () => void;
+  onRowDragOver: (e: React.DragEvent<HTMLLIElement>) => void;
+  onRowDragLeave: () => void;
+  onRowDrop: (e: React.DragEvent<HTMLLIElement>) => void;
   t: ReturnType<typeof useTranslations>;
   tContext: ReturnType<typeof useTranslations>;
 }
@@ -179,46 +295,71 @@ function DocumentRow({
   previewOpen,
   onTogglePreview,
   onToggle,
-  onMove,
+  isGrabbed,
+  isDragging,
+  isDragOver,
+  instructionsId,
+  onHandleKeyDown,
+  onDragStartHandle,
+  onDragEndHandle,
+  onRowDragOver,
+  onRowDragLeave,
+  onRowDrop,
   t,
   tContext,
 }: DocumentRowProps) {
   const { dir, name } = splitPathParts(row.path);
   const doc = row.doc;
   const threat = doc ? resolveThreatLevel(doc) : "unknown";
-  const canMoveUp = isAttached && position > 0;
-  const canMoveDown = isAttached && position < total - 1;
   // EC-4: excluded documents are visible and reported (never hidden), but
   // can't be newly attached. An already-attached document that has since
   // become excluded stays checked and enabled so it can still be removed.
   const excluded = isExcluded(doc);
   const attachable = canAttach(row, isAttached);
-  // The reference design shows only a drag handle for reordering, but HTML5
-  // drag can't be driven from a keyboard (NFR-4). The move-up/move-down
-  // buttons stay real, always-tabbable elements — `revealed` only fades
-  // them in on row hover or when one holds focus, so they read as quiet
-  // as the reference's handle without losing keyboard operability. React's
-  // onFocus/onBlur act like native focusin/focusout here (bubble to the
-  // <li>), so this doubles as a focus-within check.
-  const [revealed, setRevealed] = React.useState(false);
   // Only suspicious/dangerous documents get a threat badge — the reference
   // shows no badge at all, and a badge on every safe/unknown row would be
   // noise. Reserving it for the two levels that actually warrant a warning
   // keeps EC's injection-threat signal intact (see the threat-badge note in
   // the picker's module doc comment) while matching the cleaner look.
   const showThreatBadge = threat === "suspicious" || threat === "dangerous";
+  const handleLabel = isGrabbed
+    ? tContext("reorder.handleGrabbed", { name, position: position + 1, total })
+    : tContext("reorder.handle", { name });
 
   return (
     <li
-      style={s.row}
-      onMouseEnter={() => setRevealed(true)}
-      onMouseLeave={() => setRevealed(false)}
-      onFocus={() => setRevealed(true)}
-      onBlur={() => setRevealed(false)}
+      style={{ ...s.row, ...rowDragOverStyle(isDragOver) }}
+      onDragOver={onRowDragOver}
+      onDragLeave={onRowDragLeave}
+      onDrop={onRowDrop}
     >
-      <span aria-hidden="true" style={s.dragHandle}>
-        <Icon.Menu size={14} />
-      </span>
+      {/* Only attached rows are draggable/grabbable (point 4) — an
+          unattached row's handle stays the old inert, aria-hidden span at
+          the same fixed size so the leading column never shifts. */}
+      {isAttached ? (
+        <button
+          type="button"
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setData("text/plain", row.path);
+            onDragStartHandle();
+          }}
+          onDragEnd={onDragEndHandle}
+          onKeyDown={onHandleKeyDown}
+          disabled={busy}
+          aria-pressed={isGrabbed}
+          aria-label={handleLabel}
+          aria-describedby={instructionsId}
+          style={dragHandleButtonStyle(isGrabbed, isDragging)}
+        >
+          <Icon.Menu size={14} />
+        </button>
+      ) : (
+        <span aria-hidden="true" style={s.dragHandle}>
+          <Icon.Menu size={14} />
+        </span>
+      )}
 
       <input
         type="checkbox"
@@ -280,21 +421,6 @@ function DocumentRow({
         {showThreatBadge && <Badge color={threatColor(threat)}>{tContext(`threat.${threat}`)}</Badge>}
         {excluded && <Badge color="var(--crit)">{tContext("excluded")}</Badge>}
         {isMissing && <Badge color="var(--crit)">{t("missingInRepo")}</Badge>}
-
-        {/* Reserved on every row (see s.reorderGroup) — attached rows get
-            the real up/down buttons; unattached rows get an empty,
-            aria-hidden slot of the same width so Preview never shifts. */}
-        <span
-          style={{ ...s.reorderGroup, ...reorderGroupRevealStyle(revealed) }}
-          aria-hidden={isAttached ? undefined : true}
-        >
-          {isAttached && (
-            <>
-              <ReorderButton icon="ArrowUp" label={t("moveUp")} disabled={busy || !canMoveUp} onClick={() => onMove("up")} />
-              <ReorderButton icon="ArrowDown" label={t("moveDown")} disabled={busy || !canMoveDown} onClick={() => onMove("down")} />
-            </>
-          )}
-        </span>
       </div>
     </li>
   );
@@ -317,28 +443,4 @@ function DocumentPreview({ repoId, path }: { repoId: string; path: string }) {
   if (isError) return <p style={s.previewBlock}>{tCommon("states.error")}</p>;
   if (!data?.content) return null;
   return <pre style={s.previewBlock}>{data.content}</pre>;
-}
-
-// ---------------------------------------------------------------------------
-// Reorder button — native <button> so `disabled` is a real semantic state
-// (IconBtn has no disabled prop). Keyboard-operable by default (NFR-4).
-// ---------------------------------------------------------------------------
-
-function ReorderButton({
-  icon,
-  label,
-  disabled,
-  onClick,
-}: {
-  icon: "ArrowUp" | "ArrowDown";
-  label: string;
-  disabled: boolean;
-  onClick: () => void;
-}) {
-  const I = Icon[icon];
-  return (
-    <button type="button" aria-label={label} disabled={disabled} onClick={onClick} style={reorderBtnStyle(disabled)}>
-      <I size={13} />
-    </button>
-  );
 }

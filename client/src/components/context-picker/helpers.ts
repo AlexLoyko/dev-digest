@@ -122,7 +122,9 @@ export interface MoveResult {
 
 /** Swaps `path` with its neighbour in the given direction. Returns null at
  *  a list boundary so the caller can no-op (no state change, no
- *  announcement). */
+ *  announcement). Used by the handle's keyboard ArrowUp/ArrowDown path
+ *  (single-step nudge) — see `reorderAttachedPath` below for the
+ *  arbitrary-distance move drag-and-drop needs. */
 export function moveAttachedPath(
   attachedPaths: string[],
   path: string,
@@ -139,6 +141,27 @@ export function moveAttachedPath(
   next[from] = next[to]!;
   next[to] = tmp;
   return { paths: next, position: to + 1, total: next.length };
+}
+
+/** Moves `fromPath` to sit at `toPath`'s current index — the drag-and-drop
+ *  drop primitive. Unlike `moveAttachedPath`'s single-step neighbour swap,
+ *  this covers an arbitrary-distance move in one gesture (dropping a row
+ *  three places up moves it three places, not one). Returns null when
+ *  either path isn't currently attached, or when dropped on itself
+ *  (no-op — nothing to announce). */
+export function reorderAttachedPath(
+  attachedPaths: string[],
+  fromPath: string,
+  toPath: string,
+): MoveResult | null {
+  if (fromPath === toPath) return null;
+  const from = attachedPaths.indexOf(fromPath);
+  const to = attachedPaths.indexOf(toPath);
+  if (from === -1 || to === -1) return null;
+  const next = [...attachedPaths];
+  next.splice(from, 1);
+  next.splice(to, 0, fromPath);
+  return { paths: next, position: next.indexOf(fromPath) + 1, total: next.length };
 }
 
 // ---------------------------------------------------------------------------

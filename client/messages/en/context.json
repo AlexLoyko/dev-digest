@@ -52,6 +52,12 @@
     "preview": "preview",
     "edit": "edit"
   },
+  "reorder": {
+    "handle": "Reorder {name}",
+    "handleGrabbed": "{name} grabbed, position {position} of {total}. Use arrow keys to move, space or enter to drop, escape to cancel.",
+    "instructions": "Press space or enter to pick up this item. While picked up, use the up and down arrow keys to change its position, press space or enter again to drop it, or press escape to cancel and restore the original order.",
+    "cancelled": "{name} move cancelled, restored to position {position} of {total}"
+  },
   "editor": {
     "loadError": "Couldn’t load spec",
     "save": "Save",

@@ -122,19 +122,14 @@ export const s = {
     overflow: "auto",
   } satisfies CSSProperties,
   rowGroup: { display: "flex", flexDirection: "column", flex: 1, minWidth: 0 } satisfies CSSProperties,
+  // `chipRow` no longer carries a reorder-buttons slot (drag/keyboard
+  // reorder now lives entirely on the leading handle, outside `chipRow`,
+  // where its width is reserved identically for attached and unattached
+  // rows — see `dragHandle` below). Nothing inside `chipRow` differs by
+  // attachment state anymore, so its own width — and therefore
+  // sourceRootLabel/tokenCount/Preview's shared starting x — stays
+  // consistent across every row regardless of attachment.
   chipRow: { display: "flex", alignItems: "center", gap: 6, flexShrink: 0 } satisfies CSSProperties,
-  // Fixed-width slot for the up/down reorder buttons (two 22px buttons +
-  // 2px gap = 46px), rendered on every row regardless of attachment. Only
-  // `chipRow`'s trailing content used to differ between attached and
-  // unattached rows — attached rows had this group, unattached rows had
-  // nothing — and because `chipRow` is a natural-width flex item next to
-  // `rowGroup` (flex: 1), that extra trailing width pulled `chipRow`'s
-  // whole box (and therefore its leading sourceRootLabel/tokenCount/Preview
-  // column) further left on attached rows as `rowGroup` shrank to
-  // compensate. Reserving the width unconditionally — empty and
-  // aria-hidden when reordering doesn't apply — keeps every row's `chipRow`
-  // (and Preview's x position within it) identical either way.
-  reorderGroup: { display: "flex", alignItems: "center", gap: 2, flexShrink: 0, minWidth: 46 } satisfies CSSProperties,
   footer: {
     display: "flex",
     alignItems: "center",
@@ -157,27 +152,28 @@ export const s = {
   } satisfies CSSProperties,
 } as const;
 
-/** Reorder button — disabled at list boundaries. */
-export function reorderBtnStyle(disabled: boolean): CSSProperties {
+/** The drag handle for an attached row — a real `<button>` (draggable +
+ *  keyboard-operable, NFR-4), reset to look like the old decorative span
+ *  (`dragHandle` above) plus grabbed/dragging feedback. Same box size as
+ *  the inert unattached-row span so the column never shifts on attach. */
+export function dragHandleButtonStyle(grabbed: boolean, dragging: boolean): CSSProperties {
   return {
     display: "inline-grid",
     placeItems: "center",
-    width: 22,
-    height: 22,
-    borderRadius: 5,
-    border: "1px solid var(--border)",
-    background: "transparent",
-    color: disabled ? "var(--text-muted)" : "var(--text-secondary)",
-    opacity: disabled ? 0.4 : 1,
-    cursor: disabled ? "not-allowed" : "pointer",
     flexShrink: 0,
+    width: 16,
+    height: 22,
+    padding: 0,
+    border: "none",
+    borderRadius: 4,
+    background: grabbed ? "var(--accent-bg)" : "transparent",
+    color: grabbed ? "var(--accent)" : "var(--text-muted)",
+    cursor: dragging ? "grabbing" : "grab",
+    opacity: dragging ? 0.5 : 1,
   };
 }
 
-/** Reorder buttons stay real, tabbable elements at all times (NFR-4 — Tab
- *  must reach them even before hover/focus). `revealed` only fades them in
- *  visually on row hover or when one of them holds focus — matching the
- *  reference's drag-handle-only look while the buttons keep working. */
-export function reorderGroupRevealStyle(revealed: boolean): CSSProperties {
-  return { opacity: revealed ? 1 : 0, transition: "opacity .12s" };
+/** Visual drop-target feedback on the row currently under a dragged handle. */
+export function rowDragOverStyle(isDragOver: boolean): CSSProperties {
+  return isDragOver ? { borderColor: "var(--accent)", background: "var(--accent-bg)" } : {};
 }
