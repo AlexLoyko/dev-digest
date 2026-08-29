@@ -15,11 +15,10 @@ import { LIST_RENDER_CAP } from "./constants";
 import {
   capForDisplay,
   filterDocuments,
-  isExcluded,
+  formatMinutesAgo,
   isNotCloned,
-  rootMeta,
-  threatMeta,
-  tokenDisplay,
+  minutesSinceScan,
+  sumTokens,
   usedByAgentsCount,
 } from "./helpers";
 
@@ -40,8 +39,14 @@ export function ProjectContextView({ repoId }: { repoId: string }) {
   const selectedPath =
     manualPath && filtered.some((doc) => doc.path === manualPath) ? manualPath : rows[0]?.path ?? null;
   const selectedDoc = useContextDocument(repoId, selectedPath);
+  // Sourced from the already-loaded list (not `selectedDoc`, which is still
+  // fetching document content) so "Used by N agents" appears immediately
+  // alongside the path, not after a second round trip.
+  const selectedListDoc = documents.find((doc) => doc.path === selectedPath) ?? null;
 
   const notCloned = !!data && isNotCloned(data.index);
+  const totalTokens = sumTokens(documents);
+  const scanMinutesAgo = minutesSinceScan(data?.scanned_at);
 
   return (
     <div style={s.page}>
@@ -55,12 +60,6 @@ export function ProjectContextView({ repoId }: { repoId: string }) {
         </div>
         {data && !notCloned && (
           <div style={s.headerActions}>
-            {data.scanned_at && (
-              <div style={s.statusLine}>
-                {t("scan.indexed", { count: documents.length })} ·{" "}
-                {t("scan.lastRun", { time: new Date(data.scanned_at).toLocaleString() })}
-              </div>
-            )}
             <Button icon="RefreshCw" loading={reindex.isPending} onClick={() => reindex.mutate(repoId)}>
               {reindex.isPending ? t("indexing") : t("reindex")}
             </Button>
@@ -116,17 +115,40 @@ export function ProjectContextView({ repoId }: { repoId: string }) {
                   doc={doc}
                   active={doc.path === selectedPath}
                   onSelect={() => setManualPath(doc.path)}
-                  t={t}
                 />
               ))}
+            </div>
+            {/* Summary footer — document count and token total always
+                reflect the full (unfiltered) scanned set. The "refreshed"
+                segment needs `scanned_at`; a repo that has documents but
+                has never completed a scan (nullish `scanned_at`) simply
+                omits it rather than showing a misleading age. */}
+            <div style={s.footer}>
+              <span style={s.footerDot} />
+              <span>{t("footer.documents", { count: documents.length })}</span>
+              <span aria-hidden="true">·</span>
+              <span>{t("footer.tokensTotal", { count: totalTokens })}</span>
+              {scanMinutesAgo !== null && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>{t("footer.refreshedAgo", { time: formatMinutesAgo(scanMinutesAgo) })}</span>
+                </>
+              )}
             </div>
           </div>
 
           <div style={s.viewerCol}>
             {selectedPath ? (
               <>
-                <div className="mono" style={s.viewerPath}>
-                  {selectedPath}
+                <div style={s.viewerHeader}>
+                  <div className="mono" style={s.viewerPath}>
+                    {selectedPath}
+                  </div>
+                  {selectedListDoc && (
+                    <span style={s.usedByAgents}>
+                      {t("usedByAgents", { count: usedByAgentsCount(selectedListDoc) })}
+                    </span>
+                  )}
                 </div>
                 {selectedDoc.isLoading ? (
                   <Skeleton height={220} />
@@ -148,48 +170,18 @@ export function ProjectContextView({ repoId }: { repoId: string }) {
   );
 }
 
-/** One row in the document list — mono path, source-root chip, "used by N
- * agents", token count (`≈` + approximate label when estimated), threat
- * badge, and an excluded marker. Purely presentational; all derivation
- * lives in `helpers.ts`. */
-function DocumentRow({
-  doc,
-  active,
-  onSelect,
-  t,
-}: {
-  doc: SpecFile;
-  active: boolean;
-  onSelect: () => void;
-  t: ReturnType<typeof useTranslations>;
-}) {
-  const root = rootMeta(doc.root);
-  const threat = threatMeta(doc.threat_level);
-  const ThreatIcon = Icon[threat.icon];
-  const { tokens, approximate } = tokenDisplay(doc);
-  const usedBy = usedByAgentsCount(doc);
-  const excluded = isExcluded(doc);
-
+/** One row in the document list — a small file icon plus the mono
+ * repository-relative path. No chips (source-root, threat, usage, tokens) —
+ * "used by N agents" moved to the viewer's document header; the rest were
+ * deliberately dropped from this layout (see the implementation report).
+ * Paths render in full, never as a bare filename — with three scan roots
+ * matched at any depth, a bare filename is ambiguous. */
+function DocumentRow({ doc, active, onSelect }: { doc: SpecFile; active: boolean; onSelect: () => void }) {
   return (
     <button type="button" style={s.row(active)} onClick={onSelect}>
+      <Icon.File size={14} style={s.rowIcon(active)} />
       <span className="mono" style={s.rowPath(active)}>
         {doc.path}
-      </span>
-      <span style={s.rowMeta}>
-        {root && <span style={s.chip(root.c, root.bg)}>{t(`sourceRoot.${root.labelKey}`)}</span>}
-        <span style={s.chip(threat.c, threat.bg)}>
-          <ThreatIcon size={11} />
-          {t(`threat.${threat.labelKey}`)}
-        </span>
-        <span style={s.usedByAgents(usedBy > 0)}>{t("usedByAgents", { count: usedBy })}</span>
-        {tokens != null && (
-          <span>
-            {approximate ? "≈ " : ""}
-            {t("tokens", { count: tokens })}
-            {approximate ? ` (${t("tokensApprox")})` : ""}
-          </span>
-        )}
-        {excluded && <span style={s.excludedMarker}>{t("excluded")}</span>}
       </span>
     </button>
   );

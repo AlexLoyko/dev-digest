@@ -41,6 +41,11 @@
     "indexed": "{count, plural, one {# file indexed} other {# files indexed}}",
     "lastRun": "Last scanned {time}"
   },
+  "footer": {
+    "documents": "{count, plural, one {# document} other {# documents}}",
+    "tokensTotal": "{count, plural, one {# token total} other {# tokens total}}",
+    "refreshedAgo": "refreshed {time} ago"
+  },
   "mode": {
     "preview": "preview",
     "edit": "edit"

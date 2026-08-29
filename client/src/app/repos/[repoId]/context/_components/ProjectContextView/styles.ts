@@ -34,10 +34,6 @@ export const s = {
     alignItems: "flex-end",
     gap: 8,
   } satisfies CSSProperties,
-  statusLine: {
-    fontSize: 12,
-    color: "var(--text-muted)",
-  } satisfies CSSProperties,
   columns: {
     display: "grid",
     gridTemplateColumns: "380px 1fr",
@@ -74,11 +70,14 @@ export const s = {
     maxHeight: "calc(100vh - 260px)",
     overflowY: "auto",
   } satisfies CSSProperties,
+  /** Plain row — file icon + mono path only. No chips (source-root, threat,
+   * usage, tokens) — those either moved (usage → viewer header) or were
+   * dropped from this layout entirely (see the implementation report). */
   row: (active: boolean): CSSProperties => ({
     display: "flex",
-    flexDirection: "column",
-    gap: 6,
-    padding: "10px 16px",
+    alignItems: "center",
+    gap: 8,
+    padding: "9px 16px",
     borderTop: "1px solid var(--border)",
     borderLeft: "none",
     borderRight: "none",
@@ -88,6 +87,11 @@ export const s = {
     textAlign: "left",
     width: "100%",
   }),
+  rowIcon: (active: boolean): CSSProperties => ({
+    color: active ? "var(--accent-text)" : "var(--text-muted)",
+    flexShrink: 0,
+    display: "flex",
+  }),
   rowPath: (active: boolean): CSSProperties => ({
     fontSize: 12.5,
     color: active ? "var(--accent-text)" : "var(--text-primary)",
@@ -95,38 +99,25 @@ export const s = {
     overflow: "hidden",
     textOverflow: "ellipsis",
   }),
-  rowMeta: {
+  /** Summary footer under the list — document count, token total, and (when
+   * `scanned_at` is present) a relative "refreshed" timestamp segment — see
+   * `ProjectContextView.tsx` for the omission rule. */
+  footer: {
     display: "flex",
     alignItems: "center",
-    gap: 8,
-    flexWrap: "wrap",
+    gap: 6,
+    padding: "10px 16px",
+    borderTop: "1px solid var(--border)",
     fontSize: 12,
     color: "var(--text-muted)",
   } satisfies CSSProperties,
-  chip: (c: string, bg: string): CSSProperties => ({
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 4,
-    padding: "1px 7px",
-    borderRadius: 4,
-    fontSize: 11,
-    fontWeight: 600,
-    color: c,
-    background: bg,
-  }),
-  excludedMarker: {
-    color: "var(--crit)",
-    fontWeight: 600,
+  footerDot: {
+    width: 7,
+    height: 7,
+    borderRadius: "50%",
+    background: "var(--ok)",
+    flexShrink: 0,
   } satisfies CSSProperties,
-  /** AC-4: usage indicator shown for every document, including zero. A
-   * non-zero count stands out (primary text, bold); zero stays quiet —
-   * the same muted colour the row already uses for secondary metadata
-   * (tokens, etc.), so an unused document doesn't visually compete with
-   * one that's actually wired to an agent. */
-  usedByAgents: (used: boolean): CSSProperties => ({
-    color: used ? "var(--text-primary)" : "var(--text-muted)",
-    fontWeight: used ? 600 : 400,
-  }),
   viewerCol: {
     border: "1px solid var(--border)",
     borderRadius: 10,
@@ -134,9 +125,26 @@ export const s = {
     padding: 24,
     minHeight: 300,
   } satisfies CSSProperties,
+  /** Viewer header — mono path on the left, "Used by N agents" on the
+   * right, opposite sides of the same row (AC-4's usage indicator, moved
+   * here from the row). */
+  viewerHeader: {
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 14,
+  } satisfies CSSProperties,
   viewerPath: {
     fontSize: 13,
     color: "var(--text-muted)",
-    marginBottom: 14,
+  } satisfies CSSProperties,
+  /** AC-4: usage indicator shown for every document, including zero — one
+   * consistent muted/secondary treatment regardless of count (matches the
+   * reference: no bold, no colour swap, no chip for a non-zero count). */
+  usedByAgents: {
+    fontSize: 12,
+    color: "var(--text-muted)",
+    whiteSpace: "nowrap",
   } satisfies CSSProperties,
 } as const;

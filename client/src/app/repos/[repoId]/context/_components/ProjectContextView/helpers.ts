@@ -4,7 +4,7 @@
  * INSIGHTS.md` — "non-trivial derivations go in helpers.ts").
  */
 import type { IndexStatus, SpecFile } from "@devdigest/shared";
-import { LIST_RENDER_CAP, NOT_CLONED_MARKER, ROOT_META, THREAT_META } from "./constants";
+import { LIST_RENDER_CAP, NOT_CLONED_MARKER } from "./constants";
 
 /** EC-1: a repo with no local clone yet is signalled by this sentinel in
  * `index.message` — never rendered, only branched on. */
@@ -38,20 +38,6 @@ export function capForDisplay<T>(items: T[], cap: number = LIST_RENDER_CAP): Cap
   };
 }
 
-/** Root chip colour + i18n label key for a document's source root. Falls
- * back to a neutral/unlabeled chip for a document with no root (should not
- * happen for a persisted document, but keeps the row renderable). */
-export function rootMeta(root: SpecFile["root"]): { c: string; bg: string; labelKey: string } | null {
-  if (!root) return null;
-  return ROOT_META[root];
-}
-
-/** Threat badge colour/icon/i18n label key. A missing/null threat level
- * (not yet scanned, or pre-threat-scan data) reads as "unknown". */
-export function threatMeta(level: SpecFile["threat_level"]) {
-  return THREAT_META[level ?? "unknown"];
-}
-
 /** `used_by_agents` is nullish for a document that has never been attached
  * to any agent — normalize to 0 so callers can compare with `> 0` safely
  * (see the `{count && <X/>}` gotcha in INSIGHTS.md). */
@@ -59,21 +45,33 @@ export function usedByAgentsCount(doc: SpecFile): number {
   return doc.used_by_agents ?? 0;
 }
 
-/** True when the document was excluded from context assembly (e.g. too
- * large) — drives the "Excluded" marker on its row. */
-export function isExcluded(doc: SpecFile): boolean {
-  return !!doc.excluded_reason;
+/** Sums `tokens` across all listed documents for the list footer's running
+ * total. Documents with no token count yet (not scanned) contribute 0 — the
+ * total is a best-effort figure, not a guarantee every document was counted. */
+export function sumTokens(documents: SpecFile[]): number {
+  return documents.reduce((sum, doc) => sum + (doc.tokens ?? 0), 0);
 }
 
-export interface TokenDisplay {
-  /** `null` when the document has no token count yet (not yet scanned). */
-  tokens: number | null;
-  approximate: boolean;
+/** Whole minutes elapsed between `scannedAt` and `now` (defaults to
+ * `new Date()`, injectable for tests), floored and clamped to ≥ 0. Returns
+ * `null` when there's no scan yet (`scannedAt` nullish or unparsable) — the
+ * caller decides how the footer renders that case. */
+export function minutesSinceScan(scannedAt: string | null | undefined, now: Date = new Date()): number | null {
+  if (!scannedAt) return null;
+  const scannedMs = new Date(scannedAt).getTime();
+  if (Number.isNaN(scannedMs)) return null;
+  return Math.max(0, Math.floor((now.getTime() - scannedMs) / 60_000));
 }
 
-/** Normalizes the `tokens` / `tokens_approximate` pair for display — the
- * `≈` prefix and the `tokensApprox` label are applied by the component only
- * when `approximate` is true. */
-export function tokenDisplay(doc: SpecFile): TokenDisplay {
-  return { tokens: doc.tokens ?? null, approximate: !!doc.tokens_approximate };
+/** Formats `minutesSinceScan`'s output as a short relative unit — "0m",
+ * "45m", "3h", "2d". No i18n key exists for relative-time formatting (see
+ * the Project Context implementation report); this is a deliberately
+ * minimal, mostly-language-neutral abbreviation used only until one is
+ * added. Kept pure/exported so it's independently testable. */
+export function formatMinutesAgo(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
 }
