@@ -164,6 +164,29 @@ export function reorderAttachedPath(
   return { paths: next, position: next.indexOf(fromPath) + 1, total: next.length };
 }
 
+/** Drops an *unattached* document onto the attached group, attaching it at
+ *  the index `beforePath` currently occupies — the drag-and-drop equivalent
+ *  of "tick the checkbox, then drag it into place" in one gesture. Distinct
+ *  from `reorderAttachedPath`: the source here was never in `attachedPaths`
+ *  to begin with, so there's no existing index to splice out of, only a
+ *  target index to splice into. Returns null when `path` is already
+ *  attached (this isn't the right primitive — use `reorderAttachedPath`) or
+ *  `beforePath` isn't currently attached (nothing to anchor the drop
+ *  position to; dropping an unattached row onto another unattached row is a
+ *  no-op at the call site, not this function's job to detect). */
+export function insertAttachedPath(
+  attachedPaths: string[],
+  path: string,
+  beforePath: string,
+): MoveResult | null {
+  if (attachedPaths.includes(path)) return null;
+  const to = attachedPaths.indexOf(beforePath);
+  if (to === -1) return null;
+  const next = [...attachedPaths];
+  next.splice(to, 0, path);
+  return { paths: next, position: to + 1, total: next.length };
+}
+
 // ---------------------------------------------------------------------------
 // Threat level
 // ---------------------------------------------------------------------------

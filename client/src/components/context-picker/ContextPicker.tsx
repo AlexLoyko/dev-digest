@@ -15,6 +15,7 @@ import {
   buildDisplayRows,
   canAttach,
   filterDisplayRows,
+  insertAttachedPath,
   isExcluded,
   moveAttachedPath,
   reorderAttachedPath,
@@ -27,7 +28,7 @@ import {
   type DisplayRow,
   type MoveDirection,
 } from "./helpers";
-import { s, dragHandleButtonStyle, rowDragOverStyle, sourceRootColor } from "./styles";
+import { s, dragHandleButtonStyle, rowDragStyle, sourceRootColor } from "./styles";
 
 export interface ContextPickerProps {
   documents: SpecFile[];
@@ -146,7 +147,23 @@ export function ContextPicker({
     }
   }
 
-  function handleDragStart(path: string) {
+  // Every row is a native HTML5 drag source now — not just the attached
+  // rows' handle button — so `onDragStart` lives on the `<li>` and fires
+  // for both attached and unattached rows. The handle stays as a real
+  // `<button>` for keyboard grab/arrow-move/Escape (attached rows only,
+  // NFR-4) and as the visual "this is grabbable" affordance, but no longer
+  // carries its own `draggable`/`onDragStart` — a drag started anywhere on
+  // the handle bubbles up to the `<li>` exactly like a drag started
+  // anywhere else on the row body, since the handle itself declares no
+  // competing `draggable` value. The checkbox and the Preview button *do*
+  // declare `draggable={false}` explicitly — per the HTML drag-and-drop
+  // processing model that stops the browser from walking further up the
+  // ancestor chain to find a draggable source, so a click-drag started on
+  // either control never hijacks the row and their normal click behaviour
+  // (toggle / open preview) is untouched.
+  function handleDragStart(e: React.DragEvent<HTMLLIElement>, path: string) {
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", path);
     setDraggingPath(path);
     // A mouse drag takes over from any in-progress keyboard grab.
     setGrabbedPath(null);
@@ -158,10 +175,37 @@ export function ContextPicker({
     setDragOverPath(null);
   }
 
+  // Single gate for "would dropping sourcePath onto targetPath do
+  // anything" — shared by the hover indicator (which only has `draggingPath`
+  // state to go on, since `dataTransfer.getData` isn't readable during
+  // `dragover` for security reasons) and the actual drop handler (which has
+  // the real payload from `dataTransfer.getData` at drop time). Three rules,
+  // matched to what `attachedPaths` order actually means (the order
+  // documents are injected into the prompt — only meaningful among attached
+  // documents):
+  //  - target must be attached — dropping into the unattached area is
+  //    always a no-op (never detach-by-drop; EC-4/checkbox stays the only
+  //    explicit detach path).
+  //  - source already attached → valid, `reorderAttachedPath` handles it.
+  //  - source not yet attached → valid only if it's actually attachable
+  //    (EC-4: an excluded, unattached document can't be newly attached via
+  //    drag any more than via its disabled checkbox) — `insertAttachedPath`
+  //    handles it.
+  function canDrop(sourcePath: string, targetPath: string): boolean {
+    if (sourcePath === targetPath) return false;
+    if (!attachedPaths.includes(targetPath)) return false;
+    if (attachedPaths.includes(sourcePath)) return true;
+    const sourceRow = allRows.find((r) => r.path === sourcePath);
+    return !!sourceRow && canAttach(sourceRow, false);
+  }
+
   function handleDropOn(targetPath: string, sourcePath: string) {
     setDraggingPath(null);
     setDragOverPath(null);
-    const result = reorderAttachedPath(attachedPaths, sourcePath, targetPath);
+    if (!canDrop(sourcePath, targetPath)) return;
+    const result = attachedPaths.includes(sourcePath)
+      ? reorderAttachedPath(attachedPaths, sourcePath, targetPath)
+      : insertAttachedPath(attachedPaths, sourcePath, targetPath);
     if (!result) return;
     onChange(result.paths);
     announceMove(sourcePath, result.position, result.total);
@@ -211,16 +255,15 @@ export function ContextPicker({
                 isDragOver={dragOverPath === row.path}
                 instructionsId={instructionsId}
                 onHandleKeyDown={(e) => handleHandleKeyDown(e, row.path)}
-                onDragStartHandle={() => handleDragStart(row.path)}
-                onDragEndHandle={handleDragEnd}
+                onRowDragStart={(e) => handleDragStart(e, row.path)}
+                onRowDragEnd={handleDragEnd}
                 onRowDragOver={(e) => {
-                  if (!isAttached || !draggingPath || draggingPath === row.path) return;
+                  if (!draggingPath || !canDrop(draggingPath, row.path)) return;
                   e.preventDefault();
                   setDragOverPath(row.path);
                 }}
                 onRowDragLeave={() => setDragOverPath((p) => (p === row.path ? null : p))}
                 onRowDrop={(e) => {
-                  if (!isAttached) return;
                   e.preventDefault();
                   const sourcePath = e.dataTransfer.getData("text/plain");
                   if (sourcePath) handleDropOn(row.path, sourcePath);
@@ -275,8 +318,8 @@ interface DocumentRowProps {
   isDragOver: boolean;
   instructionsId: string;
   onHandleKeyDown: (e: React.KeyboardEvent<HTMLButtonElement>) => void;
-  onDragStartHandle: () => void;
-  onDragEndHandle: () => void;
+  onRowDragStart: (e: React.DragEvent<HTMLLIElement>) => void;
+  onRowDragEnd: () => void;
   onRowDragOver: (e: React.DragEvent<HTMLLIElement>) => void;
   onRowDragLeave: () => void;
   onRowDrop: (e: React.DragEvent<HTMLLIElement>) => void;
@@ -300,8 +343,8 @@ function DocumentRow({
   isDragOver,
   instructionsId,
   onHandleKeyDown,
-  onDragStartHandle,
-  onDragEndHandle,
+  onRowDragStart,
+  onRowDragEnd,
   onRowDragOver,
   onRowDragLeave,
   onRowDrop,
@@ -328,24 +371,38 @@ function DocumentRow({
 
   return (
     <li
-      style={{ ...s.row, ...rowDragOverStyle(isDragOver) }}
+      // Every row is a native drag source now — dropping an unattached row
+      // onto the attached group attaches it at that position, dropping an
+      // attached row reorders — not just the handle, since restricting the
+      // gesture to a 16px glyph is why users couldn't find it. `draggable`
+      // (not the handle's own attribute — it has none now) is what the
+      // browser's drag-and-drop ancestor walk resolves to when the drag
+      // starts anywhere on the row *except* the checkbox/Preview button,
+      // which each declare `draggable={false}` to opt out (see the
+      // `handleDragStart` comment above for why that works). Disabled
+      // while `busy`, matching every other mutating control on this row.
+      draggable={!busy}
+      onDragStart={onRowDragStart}
+      onDragEnd={onRowDragEnd}
       onDragOver={onRowDragOver}
       onDragLeave={onRowDragLeave}
       onDrop={onRowDrop}
+      style={{ ...s.row, ...rowDragStyle(isDragOver, isDragging) }}
     >
-      {/* Only attached rows are draggable/grabbable (point 4) — an
-          unattached row's handle stays the old inert, aria-hidden span at
-          the same fixed size so the leading column never shifts. */}
+      {/* The handle is the keyboard-operable control (Space/Enter grab,
+          arrow move, Escape cancel — NFR-4, attached rows only, since
+          reordering only has meaning among attached documents) and the
+          visual "this is grabbable" affordance. It carries no `draggable`
+          of its own — the `<li>` above owns the actual native drag, so a
+          mouse drag started on the handle bubbles up to it exactly like a
+          drag started on the row body. Unattached rows keep the old inert,
+          aria-hidden span at the same fixed size so the leading column
+          never shifts, but the row itself is still a drag source (see
+          `onRowDragStart` above) — an unattached row can be dragged into
+          the attached group to attach it at the drop position. */}
       {isAttached ? (
         <button
           type="button"
-          draggable
-          onDragStart={(e) => {
-            e.dataTransfer.effectAllowed = "move";
-            e.dataTransfer.setData("text/plain", row.path);
-            onDragStartHandle();
-          }}
-          onDragEnd={onDragEndHandle}
           onKeyDown={onHandleKeyDown}
           disabled={busy}
           aria-pressed={isGrabbed}
@@ -366,6 +423,10 @@ function DocumentRow({
         checked={isAttached}
         disabled={busy || !attachable}
         onChange={onToggle}
+        // Opts the checkbox out of the row's `draggable` — see the `<li>`
+        // comment above. Without this, a click-drag started on the
+        // checkbox would be captured as a row drag instead of a toggle.
+        draggable={false}
         aria-label={`${isAttached ? t("detach") : t("attach")} ${name}`}
         style={s.checkbox}
       />
@@ -414,7 +475,18 @@ function DocumentRow({
           )}
         </span>
 
-        <Button kind="tertiary" size="sm" icon="Eye" active={previewOpen} onClick={onTogglePreview}>
+        <Button
+          kind="tertiary"
+          size="sm"
+          icon="Eye"
+          active={previewOpen}
+          onClick={onTogglePreview}
+          // Opts out of the row's `draggable` (same reasoning as the
+          // checkbox above) and pins its own cursor so it doesn't visually
+          // inherit the row's grab/grabbing cursor while dragging is armed.
+          draggable={false}
+          style={{ cursor: "pointer" }}
+        >
           {tContext("mode.preview")}
         </Button>
 

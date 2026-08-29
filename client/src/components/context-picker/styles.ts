@@ -173,7 +173,29 @@ export function dragHandleButtonStyle(grabbed: boolean, dragging: boolean): CSSP
   };
 }
 
-/** Visual drop-target feedback on the row currently under a dragged handle. */
-export function rowDragOverStyle(isDragOver: boolean): CSSProperties {
-  return isDragOver ? { borderColor: "var(--accent)", background: "var(--accent-bg)" } : {};
+/** Per-row drag feedback — cursor affordance, dim-while-dragging, and the
+ *  drop-position indicator. Every branch below returns the *same* set of
+ *  property keys (`cursor`, `opacity`, `boxShadow`), only the values differ;
+ *  none of them touches `border`/`background` at all, which stay constant
+ *  on `s.row` regardless of drag state. That's deliberate: React warns when
+ *  a style object sets a longhand (e.g. `borderColor`) in one render and
+ *  omits it in the next while a shorthand for the same property
+ *  (`s.row.border`) stays present — the removed longhand can fail to
+ *  reset the shorthand's value cleanly. Using `boxShadow` (no shorthand
+ *  sibling) with a `"none"` fallback instead of `{}` sidesteps that
+ *  failure mode entirely: the property is always present, so there's
+ *  never a remove-vs-shorthand conflict for the browser to resolve.
+ *
+ *  The indicator itself is a thin inset line on the row's top edge, not a
+ *  ring around the whole row — a ring reads as "this row is selected",
+ *  which collides with the checkbox's own attached/checked state. A line
+ *  at the edge the dragged row would land above reads as a drop position
+ *  instead (`reorderAttachedPath`/`insertAttachedPath` both place the
+ *  dragged path at the target's index, i.e. just above it). */
+export function rowDragStyle(isDragOver: boolean, isDragging: boolean): CSSProperties {
+  return {
+    cursor: isDragging ? "grabbing" : "grab",
+    opacity: isDragging ? 0.6 : 1,
+    boxShadow: isDragOver ? "inset 0 2px 0 0 var(--accent)" : "none",
+  };
 }
