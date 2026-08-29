@@ -86,6 +86,43 @@ Behavior notes:
   delimited document text (built via `reviewer-core`'s `buildProjectContextSection`), not a bare list
   of attached paths.
 
+### PR Brief
+
+<!-- updated from: server/src/modules/brief/routes.ts, server/src/vendor/shared/contracts/brief.ts -->
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/pulls/:id/brief` | Read the stored `PrBrief` (what/why/risk/review-focus) + generation metadata + staleness + the PR's latest completed run summary. **Read-only — makes zero LLM calls in every branch.** |
+| `POST` | `/pulls/:id/brief/generate` | (Re)generate the brief — the only path that spends money. Exactly one model call per request (AC-2), coalesced across concurrent callers for the same PR state via single-flight (AC-8). |
+
+Rate limit: `POST /pulls/:id/brief/generate` — 10/min.
+
+Shapes are defined in `src/vendor/shared/contracts/brief.ts` (`PrBrief`, `BriefMeta`, `BriefDegradation`,
+`BriefLatestRun`, `BriefResponse`, `StoredBrief`). Routes: `src/modules/brief/routes.ts`.
+
+Behavior notes:
+
+- **`GET` makes zero LLM calls, always — including when the stored brief is stale.** It does not
+  lazily compute, unlike `GET /pulls/:id/intent` (compute-on-miss) or `GET /pulls/:id/blast` (always
+  calls the LLM). A read that spends money would mean merely loading a page bills the user. The 10/min
+  rate limit and the single-flight guard above are the only two spend controls, and both sit on the
+  `POST`.
+- `GET`'s response `brief` and `meta` are `.nullable()`, not `.optional()` — when no brief has ever been
+  generated for the PR, the response is **`200` with `{ brief: null, meta: null, stale: false,
+  latest_run: <resolved independently> }`**, never a `404` and never an error. This is the payload the
+  client's "no brief generated yet" state renders from.
+- `latest_run` is resolved independently of `brief` — a PR can have a brief and no completed run, a
+  completed run and no brief, both, or neither. It is `null` when no run has completed successfully
+  (a `running`/`failed`/`cancelled` run, or one with no valid `verdict`, never counts).
+- `stale` is `stored.head_sha !== pull.head_sha` — the PR has moved past the commit the stored brief
+  was generated for. A stale brief is still returned as-is; the client, not this route, decides whether
+  to request a regeneration.
+- `POST`'s failure body is a discriminated `{ reason: 'model_error' | 'invalid_result', hasPriorBrief:
+  boolean }` — the client picks its presentation branch from those two fields, never from the HTTP
+  status alone. `invalid_result` (the model responded but its output failed validation) replies `422`;
+  `model_error` (the call itself could not be completed) replies `502`. On any failure, nothing is
+  written — a previously stored brief, if any, is left byte-identical.
+
 ### Settings & Workspace
 
 | Method | Path | Description |

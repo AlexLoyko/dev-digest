@@ -23,6 +23,22 @@ Pre-run commits: 42f60c8 spec · c6d5dc9 AC-23 · 0ef1464 plan
   (or nothing)", but T3 declares Depends-on: T2. Owned paths do not collide, but
   T3 imports T2's types/constants. T3 held back and dispatched after T2 lands.
 
+## Interface notes for later tasks (cross-boundary tracking)
+- T25 ReviewFocusCard props: `prId`, `repoFullName?: string | null`, `headSha?: string | null`
+  — matching the FindingsTab/FindingCard convention. T27 must thread all three from
+  page.tsx through OverviewTab, which today passes only prBody + prId.
+- T16 BriefCard takes repoFullName + headSha as props for the same reason.
+- T8 consumes fitToBudget's THIRD field `tokens` for BriefMeta.input_tokens_measured.
+
+## For the architecture review
+- T9 service.ts `classifyThrow()` separates invalid_result from model_error by testing
+  the error message for the substring "schema". Defensible (MockLLMProvider and the real
+  adapters both use that wording) but brittle — a provider rewording its errors would
+  silently reclassify every validation failure as a model error. Raise at Stage 3.
+- T31 added `if (data === undefined) return null` in BriefCard.tsx; it is load-bearing
+  (without it the shared testids race the mocked fetch and T16's anatomy tests break).
+  Recorded in client/insights/INSIGHTS.md. Do not let a later task strip it.
+
 ## Test debt (test-writer is off)
 Phase 1 — T1 DID write contract assertions in server/test/contracts.test.ts,
 so AC-4 and EC-10 are genuinely executed, not debt.
