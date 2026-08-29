@@ -14,6 +14,7 @@ What is covered, what is not, and why.
 | `diff` | `flows/diff.json` | Diff view renders for the seeded PR |
 | `onboarding` | `flows/onboarding.json` | Onboarding wizard loads and first step renders |
 | `settings` | `flows/settings.json` | Settings page loads, provider selector visible |
+| `project-context` | `specs/08-project-context.flow.json` | Project Context: seeded document (`specs/public-api.md`) renders read-only with its H1 body; page text excludes any Upload/Delete/Edit control (AC-2); re-scan settles to the "files indexed" status line, not the spinner; second seeded repo (`acme/docs-portal`, null clone path) shows the not-cloned empty state. Does **not** cover the root-only-clone empty-state leg (EC-2) — no seeded repo is cloned with zero matching specs/docs/insights files. |
 
 ## What Is Not Covered
 

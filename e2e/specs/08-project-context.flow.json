@@ -1,0 +1,47 @@
+{
+  "name": "Project Context renders seeded documents read-only, with no edit affordance",
+  "description": "From the seeded acme/payments-api repo, open Project Context via the sidebar. The seeded clone is never pre-scanned (server/src/db/seed.ts never sets scanned_at), so the page starts on the 'No spec files yet' empty state until the first scan — trigger it via the 'Re-index' button and assert the settled 'files indexed' status line renders afterward (not the transient 'Indexing…' spinner, which would be timing-flaky). Then select the seeded specs/public-api.md document and confirm its filename and rendered H1 body ('Public API — PRD') are visible. Dump the page text with `get text body` and assert it EXCLUDES 'Upload', 'Delete', and 'Edit' — no control anywhere in this tree offers to mutate the document (AC-2; 'Edit', not the generic lowercase substring 'edit', because the read-only notice's own copy contains '...can't be edited here'). Finally switch to the second seeded repo (acme/docs-portal, clone_path null) via the sidebar repo switcher — which always routes to /pulls, so Project Context must be reopened from the sidebar — and assert the not-cloned empty-state copy from client/messages/en/context.json renders. Read-only seeded data throughout — no model call. Assumes a freshly-seeded DB where acme/payments-api is the first repo (guaranteed by e2e-web.yml / scripts/e2e.sh). NOTE: the fifth EC-2 leg (empty state naming scanned roots on a root-only clone with zero matching spec files) is NOT covered — the seed fixture only provides a fully-populated clone (acme/payments-api) and a null-clone_path repo (acme/docs-portal); there is no seeded repo that is cloned but yields zero specs/docs/insights matches, and inventing one is out of scope for this task (server/src/db/seed.ts is owned by T13).",
+  "steps": [
+    { "cmd": ["open", "{BASE}/"], "label": "load the app root" },
+    { "cmd": ["wait", "--url", "/pulls"], "label": "root redirects to the first repo's PR list" },
+    { "cmd": ["find", "text", "Project Context", "click"], "label": "open Project Context via the sidebar" },
+    { "cmd": ["wait", "--url", "/context"], "label": "navigate to the context route" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "context page settles" },
+    { "cmd": ["wait", "--text", "No spec files yet"], "label": "unscanned clone shows the empty state (context.json empty.title)" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Re-index"], "label": "trigger the first scan" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "scan request settles" },
+    {
+      "cmd": ["get", "text", "body"],
+      "label": "settled status line ('N files indexed') renders after the scan, not the spinner",
+      "assert": { "stdoutIncludes": "files indexed", "stdoutExcludes": "Indexing…" }
+    },
+    { "cmd": ["find", "text", "specs/public-api.md", "click"], "label": "select the seeded public-api.md document" },
+    { "cmd": ["wait", "--text", "Public API — PRD"], "label": "document's rendered H1 body is visible" },
+    {
+      "cmd": ["get", "text", "body"],
+      "label": "page text excludes an Upload control",
+      "assert": { "stdoutExcludes": "Upload" }
+    },
+    {
+      "cmd": ["get", "text", "body"],
+      "label": "page text excludes a Delete control",
+      "assert": { "stdoutExcludes": "Delete" }
+    },
+    {
+      "cmd": ["get", "text", "body"],
+      "label": "page text excludes an Edit control",
+      "assert": { "stdoutExcludes": "Edit" }
+    },
+    { "cmd": ["find", "text", "acme/payments-api", "click"], "label": "open the repo switcher" },
+    { "cmd": ["find", "text", "acme/docs-portal", "click"], "label": "switch to the second seeded repo" },
+    { "cmd": ["wait", "--url", "/pulls"], "label": "repo switch lands on the new repo's PR list (RepoSwitcher always routes to /pulls)" },
+    { "cmd": ["find", "text", "Project Context", "click"], "label": "open Project Context again for the second repo" },
+    { "cmd": ["wait", "--url", "/context"], "label": "navigate to the second repo's context route" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "not-cloned state settles" },
+    { "cmd": ["wait", "--text", "Repo not cloned"], "label": "not-cloned title renders (context.json notCloned.title)" },
+    {
+      "cmd": ["wait", "--text", "Clone this repo locally to scan specs/, docs/, and insights/ for project context."],
+      "label": "not-cloned explanation renders (context.json notCloned.body)"
+    }
+  ]
+}

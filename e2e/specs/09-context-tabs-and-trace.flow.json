@@ -1,0 +1,67 @@
+{
+  "name": "Agent/skill Context tabs render attached specs, missing badge, and token total; the run drawer's Project context segment shows the untrusted-delimited injected text",
+  "description": "Three legs, all against read-only seeded data (no model call). Leg 1: open the seeded Security Reviewer agent (server/src/db/seed.ts securityReviewerAttachments), its Context tab, and confirm the three attached filenames (specs/security-baseline.md, specs/public-api.md, specs/deleted-doc.md) render, the 'missing in repo' badge appears for deleted-doc.md (deliberately never written to the fixture repo, per EC-7), and the footer token-total line renders. Leg 2: open the seeded 'PR Quality Rubric' skill (skillIdBySlug 'pr-quality-rubric', attached to specs/public-api.md), its Context tab, and confirm the SERIALIZES AS panel (useSkillContextPreview -> service.ts previewSkillContext) contains the '## Project context' heading and the '<untrusted source=\"spec:' delimiter (AC-9) — scoped to the panel's own `pre.mono` element (unique on this tab; verified against the client source) rather than the whole page, since the raw attached path 'specs/public-api.md' legitimately also appears elsewhere on the same screen (the ContextPicker's own document list) and a page-wide check would not discriminate a bare-list regression from the correct serialization. No separate stdoutExcludes 'bare list' check is added: with a single attached document there is no substring that is present in a hypothetical bare-list rendering but absent from the correct delimited one, so the positive heading+delimiter assertions (which a bare list of paths could not satisfy) are the achievable proof; see the implementer report for this reasoning. Leg 3: open PR #482 (seed's fixtureCommitSha run_traces row), the Agent runs tab, the run drawer via the timeline's 'Open run trace & logs' button, expand 'Prompt assembly' then the 'Project context — attached specs (untrusted)' segment (trace.prompt.specs — a UI label only, not part of the serialized text; reviewer-core/src/prompt.ts's assembly.specs carries no '## Project context' heading, so this leg does not assert that heading), and confirm the '<untrusted source=\"spec:' delimiter and the actual injected specs/security-baseline.md text are visible. Assumes a freshly-seeded DB (e2e-web.yml / scripts/e2e.sh) where acme/payments-api is the first repo, PR #482 is seeded with a completed Security Reviewer run trace, and Security Reviewer / PR Quality Rubric carry the attachments above.",
+  "steps": [
+    { "cmd": ["open", "{BASE}/agents"], "label": "load the agents page" },
+    { "cmd": ["wait", "--url", "/agents"], "label": "agents route reached" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "agents fetch settles" },
+    { "cmd": ["wait", "--text", "Security Reviewer"], "label": "seeded Security Reviewer card is visible" },
+    { "cmd": ["find", "text", "Security Reviewer", "click"], "label": "open the Security Reviewer editor" },
+    { "cmd": ["wait", "--url", "/agents/"], "label": "navigate to the agent editor route" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "agent editor data settles" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Context"], "label": "switch to the agent's Context tab" },
+    { "cmd": ["wait", "--url", "tab=context"], "label": "context tab is active in the URL" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "context files + agent attachment fetch settle" },
+    { "cmd": ["wait", "--text", "security-baseline.md"], "label": "seeded attachment 1 filename renders" },
+    { "cmd": ["wait", "--text", "public-api.md"], "label": "seeded attachment 2 filename renders" },
+    { "cmd": ["wait", "--text", "deleted-doc.md"], "label": "seeded attachment 3 filename renders (deliberately absent on disk)" },
+    { "cmd": ["wait", "--text", "Not found in repo — was it moved or deleted?"], "label": "'missing in repo' badge renders for deleted-doc.md (agents.context.missingInRepo, EC-7)" },
+    { "cmd": ["wait", "--text", "tokens total"], "label": "footer token-total line renders (agents.context.tokensTotal)" },
+
+    { "cmd": ["open", "{BASE}/skills"], "label": "load the skills page" },
+    { "cmd": ["wait", "--url", "/skills"], "label": "skills route reached" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "skills fetch settles" },
+    { "cmd": ["wait", "--text", "PR Quality Rubric"], "label": "seeded PR Quality Rubric card is visible" },
+    { "cmd": ["find", "text", "PR Quality Rubric", "click"], "label": "open the PR Quality Rubric skill editor" },
+    { "cmd": ["wait", "--url", "/skills/"], "label": "navigate to the skill editor route" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "skill editor data settles" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Context"], "label": "switch to the skill's Context tab" },
+    { "cmd": ["wait", "--url", "tab=context"], "label": "context tab is active in the URL" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "context files + skill attachment + serialization preview fetch settle" },
+    { "cmd": ["wait", "--text", "## Project context"], "label": "SERIALIZES AS panel shows the '## Project context' heading (AC-9)" },
+    { "cmd": ["wait", "--text", "<untrusted source=\"spec:"], "label": "SERIALIZES AS panel shows the untrusted delimiter (AC-9)" },
+    {
+      "cmd": ["get", "text", "pre.mono"],
+      "label": "SERIALIZES AS panel text (scoped to its own pre.mono, unique on this tab) includes the heading",
+      "assert": { "stdoutIncludes": "## Project context" }
+    },
+    {
+      "cmd": ["get", "text", "pre.mono"],
+      "label": "SERIALIZES AS panel text includes the untrusted-delimited source label for the attached doc",
+      "assert": { "stdoutIncludes": "<untrusted source=\"spec:specs/public-api.md\">" }
+    },
+    {
+      "cmd": ["get", "text", "pre.mono"],
+      "label": "SERIALIZES AS panel text includes the attached document's actual body, not just its path",
+      "assert": { "stdoutIncludes": "Every public endpoint MUST enforce rate limiting per API key" }
+    },
+
+    { "cmd": ["open", "{BASE}/"], "label": "load the app root" },
+    { "cmd": ["wait", "--url", "/pulls"], "label": "land on the PR list" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "PR list fetch settles" },
+    { "cmd": ["find", "text", "Add rate limiting to public API endpoints", "click"], "label": "open the PR row" },
+    { "cmd": ["wait", "--url", "/pulls/482"], "label": "navigate to the PR detail route" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "PR detail data settles" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Agent runs"], "label": "switch to the Agent runs tab" },
+    { "cmd": ["wait", "--url", "tab=findings"], "label": "findings tab is active in the URL" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "timeline + run history fetch settle" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Open run trace & logs"], "label": "open the run trace drawer for the seeded run" },
+    { "cmd": ["wait", "--text", "Agent run · Security Reviewer"], "label": "run drawer opens for the seeded Security Reviewer run" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "persisted run trace loads" },
+    { "cmd": ["find", "text", "Prompt assembly", "click"], "label": "expand the Prompt assembly section (defaultOpen=false)" },
+    { "cmd": ["wait", "--text", "Project context — attached specs (untrusted)"], "label": "the specs segment label renders (runs.json trace.prompt.specs — UI label, not part of the serialized text)" },
+    { "cmd": ["find", "text", "Project context — attached specs (untrusted)", "click"], "label": "expand the Project context — attached specs (untrusted) segment" },
+    { "cmd": ["wait", "--text", "<untrusted source=\"spec:"], "label": "expanded segment shows the untrusted delimiter" },
+    { "cmd": ["wait", "--text", "No credential, API key, or private key may appear in source"], "label": "expanded segment shows the actual injected specs/security-baseline.md text (AC-18)" }
+  ]
+}

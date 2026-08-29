@@ -24,6 +24,7 @@ import { dirname, join } from "node:path";
 import {
   resolveArgs,
   stdoutContains,
+  stdoutExcludes,
   summarize,
   type Flow,
   type FlowResult,
@@ -72,6 +73,11 @@ async function runFlow(file: string, flow: Flow): Promise<FlowResult> {
       const stdout = await ab(args);
       if (step.assert?.stdoutIncludes && !stdoutContains(stdout, step.assert.stdoutIncludes)) {
         steps.push({ label, ok: false, detail: `stdout missing "${step.assert.stdoutIncludes}"` });
+        console.log(`   ✗ ${label} — assertion failed`);
+        break;
+      }
+      if (step.assert?.stdoutExcludes && !stdoutExcludes(stdout, step.assert.stdoutExcludes)) {
+        steps.push({ label, ok: false, detail: `stdout unexpectedly contains "${step.assert.stdoutExcludes}"` });
         console.log(`   ✗ ${label} — assertion failed`);
         break;
       }

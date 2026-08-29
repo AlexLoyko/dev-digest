@@ -12,7 +12,7 @@ export interface Step {
   /** Human label for logs (defaults to the joined cmd). */
   label?: string;
   /** Optional extra check on the command's stdout (beyond its exit code). */
-  assert?: { stdoutIncludes?: string };
+  assert?: { stdoutIncludes?: string; stdoutExcludes?: string };
 }
 
 export interface Flow {
@@ -41,6 +41,11 @@ export function resolveArgs(cmd: string[], base: string): string[] {
 
 export function stdoutContains(stdout: string, needle: string): boolean {
   return stdout.includes(needle);
+}
+
+/** Inverse of stdoutContains — true when the substring is NOT present. */
+export function stdoutExcludes(stdout: string, needle: string): boolean {
+  return !stdout.includes(needle);
 }
 
 export function summarize(results: FlowResult[]): string {
