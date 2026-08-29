@@ -214,9 +214,18 @@ export type BriefLatestRun = z.infer<typeof BriefLatestRun>;
 // `latest_run` is always present (never omitted) and is explicitly `null`
 // when no completed run exists yet, or the only run failed (EC-5) — the
 // client renders a "no review run yet" state from that null, not an absence.
+//
+// AC-23: `brief`/`meta` are `.nullable()` (not `.optional()`/`.nullish()`), so
+// the "no brief generated yet" state is a present key carrying an explicit
+// null, matching the deliberate `BriefLatestRun` convention above — the
+// client renders its "generate a brief" card from that null, not an absence.
+// `meta` describes a generation that, in this state, has not happened, so it
+// is null exactly when `brief` is null. `latest_run` stays independently
+// nullable: a PR can have no brief AND no completed run, or no brief but a
+// completed run.
 export const BriefResponse = z.object({
-  brief: PrBrief,
-  meta: BriefMeta,
+  brief: PrBrief.nullable(),
+  meta: BriefMeta.nullable(),
   stale: z.boolean(),
   latest_run: BriefLatestRun.nullable(),
 });

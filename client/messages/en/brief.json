@@ -1,15 +1,78 @@
 {
-  "block": {
-    "intent": "Intent",
-    "blast": "Blast radius",
-    "risks": "Risks",
-    "history": "PR history"
+  "card": {
+    "sectionLabel": "PR brief",
+    "generating": {
+      "headline": "Generating brief",
+      "chip": "Reading intent, blast radius and diff stats"
+    },
+    "stale": {
+      "chip": "New commits — updating brief"
+    },
+    "failure": {
+      "headline": "Couldn't generate brief",
+      "chipWithPrior": "Couldn't update — showing the previous brief",
+      "retry": "Try again"
+    },
+    "noRun": {
+      "chip": "No review run yet"
+    },
+    "riskLevel": {
+      "high": "High risk",
+      "medium": "Medium risk",
+      "low": "Low risk"
+    },
+    "findingsCount": "{count} findings",
+    "blockers": " · {count} blockers",
+    "score": {
+      "label": "PR score",
+      "accessibleLabel": "PR score {score} out of 100"
+    },
+    "regenerateAriaLabel": "Regenerate brief",
+    "noBrief": {
+      "headline": "No brief yet",
+      "body": "Nothing has been generated for this pull request. A brief reads the intent, blast radius, diff stats and linked issue — never the diff itself.",
+      "cta": "Generate brief"
+    },
+    "degraded": {
+      "badge": "Some inputs limited",
+      "intent": {
+        "reduced": "Derived intent shortened to fit the brief's input budget.",
+        "omitted": "Derived intent was unavailable and left out of this brief."
+      },
+      "blast": {
+        "reduced": "Blast radius summary shortened to fit the brief's input budget.",
+        "omitted": "Blast radius summary was unavailable and left out of this brief."
+      },
+      "linked_issue": {
+        "reduced": "Linked issue body shortened to fit the brief's input budget.",
+        "omitted": "Linked issue was unavailable and left out of this brief."
+      },
+      "pr_description": {
+        "reduced": "Pull request description shortened to fit the brief's input budget.",
+        "omitted": "Pull request description was unavailable and left out of this brief."
+      },
+      "changed_files": {
+        "reduced": "Changed-file list shortened to fit the brief's input budget.",
+        "omitted": "Changed-file list was unavailable and left out of this brief."
+      },
+      "project_context": {
+        "reduced": "Project context shortened to fit the brief's input budget.",
+        "omitted": "Project context was not included in this brief."
+      }
+    }
   },
-  "noRisks": "No notable risks flagged.",
-  "noHistory": "No prior PRs overlap these files.",
-  "overlap": "{count} overlap",
-  "unavailable": "Brief not available yet.",
-  "unavailableHint": "Run a review or open the PR to compute it.",
+  "risks": {
+    "sectionLabel": "Risk areas",
+    "showMore": "Show more",
+    "showLess": "Show less"
+  },
+  "reviewFocus": {
+    "sectionLabel": "Review focus — read these first",
+    "empty": {
+      "title": "Nothing to read first",
+      "body": "The brief didn't single out any file in this pull request as needing attention ahead of the rest of the diff."
+    }
+  },
   "why": {
     "title": "git-why",
     "blame": "blame",

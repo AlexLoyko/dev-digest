@@ -8,6 +8,7 @@ import {
   PrHistory,
   SmartDiff,
   PrBrief,
+  BriefResponse,
   Conformance,
   Onboarding,
   EvalRun,
@@ -152,6 +153,17 @@ describe('AI contracts parse fixtures', () => {
         review_focus: [],
       }),
     ).toThrow();
+  });
+
+  it('BriefResponse: AC-23 "no brief generated yet" state parses (brief/meta null, latest_run null, stale false)', () => {
+    expect(() =>
+      BriefResponse.parse({
+        brief: null,
+        meta: null,
+        latest_run: null,
+        stale: false,
+      }),
+    ).not.toThrow();
   });
 
   it('SmartDiff (data.jsx DIFF)', () => {

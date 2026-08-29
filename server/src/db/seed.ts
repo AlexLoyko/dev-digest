@@ -12,6 +12,7 @@ import type {
   RunLogLine,
   RunTrace,
   SpecRead,
+  StoredBrief,
   ToolCall,
 } from "@devdigest/shared";
 import { buildProjectContextSection, wrapUntrusted } from "../platform/prompt.js";
@@ -405,6 +406,107 @@ export async function seed(
       },
     ]);
   }
+
+  // ---- PR #482 intent + brief (AC-1 fixture) ----
+  // Own idempotency via onConflictDoNothing() on the (prId) primary key —
+  // independent of the `if (!pr)` guard above, so this backfills correctly
+  // even on a workspace seeded before this fixture existed. head_sha is
+  // pinned to the PR's own headSha ("a1b2c3d4e5f6", set above) so the brief
+  // always reads as non-stale; every risks[].file_refs[].path and
+  // review_focus[].file.path below is one of the seeded pr_files paths.
+  await db
+    .insert(t.prIntent)
+    .values({
+      prId: pr!.id,
+      intent:
+        "Add rate limiting to public API endpoints to prevent abuse from unauthenticated clients.",
+      inScope: [
+        "Add middleware for rate limiting",
+        "Apply to /api/public/* routes",
+        "Return 429 with Retry-After header",
+      ],
+      outOfScope: [
+        "Authentication changes",
+        "Adding new endpoints",
+        "Logging / observability for the limiter",
+      ],
+    })
+    .onConflictDoNothing();
+
+  const seedBrief: StoredBrief = {
+    schema_version: 1,
+    head_sha: pr!.headSha,
+    generated_at: "2026-01-15T10:00:00.000Z",
+    provider: "openai",
+    model: "gpt-4.1",
+    tokens_in: 5200,
+    tokens_out: 480,
+    cost_usd: 0.061,
+    duration_ms: 6400,
+    input_tokens_measured: true,
+    degraded: [],
+    brief: {
+      what: "Adds a token-bucket rate limiter to the public API middleware chain, applying it to /api/public/* routes and returning 429 with a Retry-After header when a client exceeds the limit.",
+      why: "Add rate limiting to public API endpoints to prevent abuse from unauthenticated clients.",
+      risk_level: "high",
+      risks: [
+        {
+          kind: "auth_surface",
+          title: "Auth surface touched",
+          explanation:
+            "The new rate-limit middleware sits in the request pipeline ahead of authentication and can short-circuit a request before auth runs.",
+          severity: "high",
+          file_refs: [
+            { path: "src/middleware/ratelimit.ts", start_line: 12, end_line: 18 },
+          ],
+        },
+        {
+          kind: "new_dependency",
+          title: "New dependency: ioredis",
+          explanation:
+            "The rate limiter introduces a new runtime dependency on ioredis for shared bucket state across instances.",
+          severity: "medium",
+          file_refs: [
+            { path: "src/middleware/ratelimit.ts", start_line: 1, end_line: 5 },
+          ],
+        },
+        {
+          kind: "perf",
+          title: "Adds Redis round-trip per request",
+          explanation:
+            "Every request now issues a network round-trip to Redis to check and update the rate-limit bucket, adding latency to the hot path.",
+          severity: "medium",
+          file_refs: [
+            { path: "src/middleware/ratelimit.ts", start_line: 40, end_line: 52 },
+          ],
+        },
+      ],
+      review_focus: [
+        {
+          file: { path: "src/config.ts", start_line: 12 },
+          reason: "Live Stripe key (sk_live_...) committed in plaintext.",
+        },
+        {
+          file: { path: "src/api/public/webhooks.ts", start_line: 61 },
+          reason:
+            "Request callback_url forwards the account token to a caller-controlled URL.",
+        },
+        {
+          file: { path: "src/middleware/ratelimit.ts", start_line: 52 },
+          reason: "429 branch omits the Retry-After header the PR scope promises.",
+        },
+        {
+          file: { path: "src/api/users.ts", start_line: 46 },
+          reason: "N+1 query — one posts lookup per user, hit harder under the new limiter.",
+        },
+      ],
+    },
+  };
+
+  await db
+    .insert(t.prBrief)
+    .values({ prId: pr!.id, json: seedBrief })
+    .onConflictDoNothing();
 
   // ---- built-in agents (the two starter presets) ----
   const seedAgents: Array<typeof t.agents.$inferInsert> = [

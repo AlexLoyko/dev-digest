@@ -13,3 +13,4 @@ export * from "./skills";
 export * from "./conventions";
 export * from "./intent";
 export * from "./context-attachments";
+export * from "./brief";

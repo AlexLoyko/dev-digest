@@ -72,3 +72,17 @@ export const api = {
     apiFetch<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }),
   del: <T>(path: string) => apiFetch<T>(path, { method: "DELETE" }),
 };
+
+/* ---------------------------------------------------------------------------
+ * PR Brief (SPEC-02) — GET /pulls/:id/brief, POST /pulls/:id/brief/generate.
+ * ------------------------------------------------------------------------- */
+
+import type { BriefResponse } from "@devdigest/shared";
+
+export function fetchBrief(prId: string | number): Promise<BriefResponse> {
+  return api.get<BriefResponse>(`/pulls/${prId}/brief`);
+}
+
+export function generateBrief(prId: string | number) {
+  return api.post<BriefResponse>(`/pulls/${prId}/brief/generate`);
+}
