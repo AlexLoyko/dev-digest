@@ -13,7 +13,9 @@ import { Badge, Card, IconBtn, Icon } from "@devdigest/ui";
 import { useContextDocument } from "@/lib/hooks";
 import {
   buildDisplayRows,
+  canAttach,
   filterDisplayRows,
+  isExcluded,
   moveAttachedPath,
   resolveThreatLevel,
   splitPathParts,
@@ -68,8 +70,13 @@ export function ContextPicker({
   const tokensTotal = sumAttachedTokens(attachedPaths, documents);
   const approx = hasApproximateTokens(attachedPaths, documents);
 
-  function handleToggle(path: string) {
-    onChange(toggleAttachment(attachedPaths, path));
+  function handleToggle(row: DisplayRow) {
+    const isAttached = attachedPaths.includes(row.path);
+    // EC-4: an excluded document that isn't already attached can't be
+    // newly attached — the checkbox is disabled, but guard here too since
+    // this is the single place that actually mutates `attachedPaths`.
+    if (!canAttach(row, isAttached)) return;
+    onChange(toggleAttachment(attachedPaths, row.path));
   }
 
   function handleMove(path: string, direction: MoveDirection) {
@@ -115,7 +122,7 @@ export function ContextPicker({
               busy={busy}
               previewOpen={previewPath === row.path}
               onTogglePreview={() => setPreviewPath((p) => (p === row.path ? null : row.path))}
-              onToggle={() => handleToggle(row.path)}
+              onToggle={() => handleToggle(row)}
               onMove={(direction) => handleMove(row.path, direction)}
               t={t}
               tContext={tContext}
@@ -180,13 +187,18 @@ function DocumentRow({
   const threat = doc ? resolveThreatLevel(doc) : "unknown";
   const canMoveUp = isAttached && position > 0;
   const canMoveDown = isAttached && position < total - 1;
+  // EC-4: excluded documents are visible and reported (never hidden), but
+  // can't be newly attached. An already-attached document that has since
+  // become excluded stays checked and enabled so it can still be removed.
+  const excluded = isExcluded(doc);
+  const attachable = canAttach(row, isAttached);
 
   return (
     <li style={s.row}>
       <input
         type="checkbox"
         checked={isAttached}
-        disabled={busy}
+        disabled={busy || !attachable}
         onChange={onToggle}
         aria-label={`${isAttached ? t("detach") : t("attach")} ${name}`}
         style={s.checkbox}
@@ -215,6 +227,7 @@ function DocumentRow({
           </span>
         )}
         <Badge color={threatColor(threat)}>{tContext(`threat.${threat}`)}</Badge>
+        {excluded && <Badge color="var(--crit)">{tContext("excluded")}</Badge>}
         {isMissing && <Badge color="var(--crit)">{t("missingInRepo")}</Badge>}
 
         <IconBtn icon="Eye" label={tContext("mode.preview")} size={22} active={previewOpen} onClick={onTogglePreview} />

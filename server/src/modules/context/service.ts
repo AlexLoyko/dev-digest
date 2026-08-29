@@ -269,7 +269,10 @@ export class ContextService {
    * reads + `buildProjectContextSection` (T5, re-exported from
    * `platform/prompt.ts`). A document that has gone missing since attach time
    * is silently omitted (mirrors `buildProjectContextSection`'s own blank-text
-   * filtering), never surfaced as an error here. */
+   * filtering), never surfaced as an error here. EC-4: a document flagged
+   * `excludedReason` by the scanner is skipped the same way — the preview
+   * must show what a run would actually assemble, and a run never reads an
+   * excluded document (see `run-executor.ts`'s `buildProjectContextSpecs`). */
   async previewSkillContext(workspaceId: string, skillId: string): Promise<ContextPreview> {
     await this.getSkillOrThrow(workspaceId, skillId);
 
@@ -278,7 +281,11 @@ export class ContextService {
 
     const specs: Array<{ path: string; text: string }> = [];
     if (repo?.clonePath) {
+      const documents = await this.container.contextRepo.listDocuments(repo.id);
+      const excludedByPath = new Map(documents.map((d) => [d.path, d.excludedReason]));
+
       for (const doc of attachments) {
+        if (excludedByPath.get(doc.path)) continue;
         try {
           const text = await this.container.git.readFile(
             { owner: repo.owner, name: repo.name },
@@ -313,12 +320,15 @@ export class ContextService {
     return repos.find((r) => r.clonePath) ?? repos[0];
   }
 
-  /** AC-16: reject the WHOLE request with 400 — and persist nothing — if any
-   * path fails either gate. `isSafeContextPath` catches absolute paths and
-   * `..` traversal lexically; `resolveContained` (T3) additionally resolves
-   * symlinks so a planted symlink that escapes the clone root is rejected
-   * too. An empty `paths` array (detaching everything) needs no clone to
-   * validate against. */
+  /** AC-16 / EC-4: reject the WHOLE request with 400 — and persist nothing —
+   * if any path fails any of three gates. `isSafeContextPath` catches
+   * absolute paths and `..` traversal lexically; `resolveContained` (T3)
+   * additionally resolves symlinks so a planted symlink that escapes the
+   * clone root is rejected too. The third gate enforces EC-4: a document the
+   * scanner flagged with a non-null `excludedReason` (oversize / unreadable)
+   * is excluded "from the list and from injection" per the spec — it must
+   * never be attachable in the first place. An empty `paths` array
+   * (detaching everything) needs no clone to validate against. */
   private async validateContextPaths(workspaceId: string, paths: string[]): Promise<void> {
     if (paths.length === 0) return;
 
@@ -330,6 +340,9 @@ export class ContextService {
         400,
       );
     }
+
+    const documents = await this.container.contextRepo.listDocuments(repo.id);
+    const byPath = new Map(documents.map((d) => [d.path, d]));
 
     for (const path of paths) {
       if (!isSafeContextPath(path)) {
@@ -344,6 +357,14 @@ export class ContextService {
         throw new AppError(
           'invalid_context_path',
           `Path could not be resolved within the repository clone: ${path}`,
+          400,
+        );
+      }
+      const record = byPath.get(path);
+      if (record?.excludedReason) {
+        throw new AppError(
+          'invalid_context_path',
+          `Document is excluded and cannot be attached (${record.excludedReason}): ${path}`,
           400,
         );
       }

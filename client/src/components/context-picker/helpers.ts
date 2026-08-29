@@ -84,6 +84,29 @@ export function toggleAttachment(attachedPaths: string[], path: string): string[
 }
 
 // ---------------------------------------------------------------------------
+// Exclusion (EC-4) — an oversize/unreadable document is excluded from the
+// list and from injection, and the exclusion is reported rather than
+// silent. Mirrors `ProjectContextView/helpers.ts:isExcluded`.
+// ---------------------------------------------------------------------------
+
+/** True when the document was excluded from context assembly. `doc` is
+ *  `null` for a path that's attached but missing from the repo entirely
+ *  (EC-7) — that's a different case and never counts as excluded. */
+export function isExcluded(doc: SpecFile | null): boolean {
+  return !!doc?.excluded_reason;
+}
+
+/** EC-4: an excluded document can never be *newly* attached — its checkbox
+ *  is disabled and toggling it is a no-op. An already-attached document
+ *  that has since become excluded (server re-scanned it and it now
+ *  exceeds the size/readability limit) stays toggleable so it can still be
+ *  removed — disabling here would strand it in the attached set with no
+ *  way to detach it. */
+export function canAttach(row: DisplayRow, isAttached: boolean): boolean {
+  return isAttached || !isExcluded(row.doc);
+}
+
+// ---------------------------------------------------------------------------
 // Keyboard-operable reordering (NFR-4)
 // ---------------------------------------------------------------------------
 

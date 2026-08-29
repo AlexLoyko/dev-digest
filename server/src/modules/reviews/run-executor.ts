@@ -702,10 +702,33 @@ export class ReviewRunExecutor {
       });
     }
 
+    // EC-4: a document the scanner flagged with a non-null `excludedReason`
+    // (oversize / unreadable) is excluded "from the list and from
+    // injection" per the spec — attach-time validation (service.ts's
+    // `validateContextPaths`) already blocks new attachments, but an
+    // existing attachment can still be excluded later by a rescan. Reject it
+    // here too, the same way a containment failure is rejected below, so an
+    // excluded document is never read or injected regardless of how it got
+    // attached.
+    const documents = repo.clonePath
+      ? await this.container.contextRepo.listDocuments(repo.id)
+      : [];
+    const excludedByPath = new Map(documents.map((d) => [d.path, d.excludedReason]));
+
     const specDocs: SpecRead[] = [];
     const specsForPrompt: Array<{ path: string; text: string }> = [];
 
     for (const doc of effectiveSet) {
+      if (excludedByPath.get(doc.path)) {
+        specDocs.push({
+          path: doc.path,
+          tokens: 0,
+          tokens_approximate: false,
+          status: "rejected",
+        });
+        continue;
+      }
+
       // AC-16: re-validate containment at READ time, not just attach time —
       // an attachment safe when it was set may have been invalidated since
       // (clone re-cloned, a symlink planted, etc.).
