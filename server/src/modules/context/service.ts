@@ -103,16 +103,36 @@ export class ContextService {
     await this.container.contextRepo.upsertScan(repoId, { status: 'parsing' });
 
     const start = Date.now();
+
+    // Advance the clone to origin/<defaultBranch> before scanning it, or the
+    // rescan just re-reports whatever stale snapshot happens to be on disk
+    // (the defect this fixes). A sync failure (unreachable repo, expired
+    // token, deleted branch) must not fail the rescan — NFR-3 requires every
+    // degradation to end in a stated partial result, never a hard failure —
+    // so we catch it, scan whatever is on disk, and surface the degradation
+    // in the scan's `message` instead of silently reporting success.
+    let syncError: string | null = null;
+    try {
+      await this.container.git.sync({ owner: repo.owner, name: repo.name }, repo.defaultBranch);
+    } catch (err) {
+      syncError = err instanceof Error ? err.message : String(err);
+    }
+
     try {
       const { documents, stats } = await scanClone(repo.clonePath, this.container.tokenizer);
       await this.container.contextRepo.replaceDocuments(repoId, documents);
 
+      // Read the head AFTER the (attempted) sync so the recorded sha
+      // describes what was actually scanned.
       const commitSha = await this.container.git.currentHead({
         owner: repo.owner,
         name: repo.name,
       });
       const durationMs = Date.now() - start;
-      const message = buildScanMessage(documents.length, stats.skippedTooLarge);
+      const scanMessage = buildScanMessage(documents.length, stats.skippedTooLarge);
+      const message = syncError
+        ? `${scanMessage} — git sync failed, scanned existing clone (${syncError})`
+        : scanMessage;
 
       const scan = await this.container.contextRepo.upsertScan(repoId, {
         status: 'done',
