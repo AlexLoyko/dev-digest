@@ -4,12 +4,24 @@
    Each row is a real <button> (keyboard-operable, R-11/NFR-4): collapsed it
    shows the severity treatment, title and grounded file references; the
    explanation is revealed in full only on expand (EC-7) — never a partial
-   sentence with no way to read the rest. */
+   sentence with no way to read the rest.
+
+   Severity is conveyed by a small icon (shape from `SEV[severity].icon`,
+   colour from `SEV[severity].c`) rather than the full labelled
+   `SeverityBadge` (spec design 01-loaded-overview.png) — the icon SHAPE
+   already differs per severity (AlertOctagon/AlertTriangle/Lightbulb), so
+   dropping the visible text label does not regress NFR-4: it carries its
+   accessible name via `role="img"` + `aria-label`, the same pattern
+   `BriefCard.tsx` uses for wrapping a vendor primitive that has no prop for
+   it. File references render as `Badge mono` chips — the same "mono text on
+   a tinted background" treatment used for scores/ids elsewhere in the
+   product (e.g. `ReviewRunAccordion.tsx`) — one per grounded ref, never a
+   single comma-joined string. */
 "use client";
 
 import React, { useState } from "react";
 import { useTranslations } from "next-intl";
-import { Icon, SeverityBadge, Skeleton, SEV } from "@devdigest/ui";
+import { Icon, Skeleton, SEV, Badge } from "@devdigest/ui";
 import type { Risk, BriefFileRef } from "@devdigest/shared";
 import { useBrief } from "@/lib/hooks";
 import { riskLevelToSeverity } from "@/lib/utils/riskSeverity";
@@ -18,9 +30,20 @@ interface RiskAreasProps {
   prId: string | number;
 }
 
+// Row layout constants — the icon occupies a fixed-width gutter on the left;
+// the title and the file-ref chips beneath it share ONE content column
+// starting at the same left edge (gutter width + the gap after it). The
+// expanded explanation block reuses this same offset so it lines up with the
+// title/chips rather than the icon.
+const ROW_PADDING_X = 10;
+const ICON_GUTTER_WIDTH = 14;
+const ROW_CONTENT_GAP = 8;
+const ROW_CONTENT_LEFT_OFFSET = ROW_PADDING_X + ICON_GUTTER_WIDTH + ROW_CONTENT_GAP;
+
 const sectionWrapperStyle: React.CSSProperties = {
+  marginTop: 16,
   borderTop: "1px solid var(--border)",
-  paddingTop: 12,
+  paddingTop: 16,
   display: "flex",
   flexDirection: "column",
   gap: 8,
@@ -43,13 +66,25 @@ const rowButtonStyle: React.CSSProperties = {
   flexDirection: "column",
   gap: 4,
   width: "100%",
-  padding: "8px 10px",
+  padding: `8px ${ROW_PADDING_X}px`,
   background: "none",
   border: "none",
   cursor: "pointer",
   textAlign: "left",
   font: "inherit",
   color: "inherit",
+};
+
+const iconGutterStyle: React.CSSProperties = {
+  width: ICON_GUTTER_WIDTH,
+  flexShrink: 0,
+  display: "flex",
+  justifyContent: "center",
+  paddingTop: 1,
+};
+
+const explanationWrapStyle: React.CSSProperties = {
+  padding: `0 ${ROW_PADDING_X}px 10px ${ROW_CONTENT_LEFT_OFFSET}px`,
 };
 
 /** `path:12-18` / `path:12` / `path` — grounded file references rendered in
@@ -96,9 +131,15 @@ export function RiskAreas({ prId }: RiskAreasProps) {
         <Icon.AlertTriangle size={12} aria-hidden="true" />
         {t("risks.sectionLabel")}
       </p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {risks.map((risk) => (
-          <RiskRow key={riskKey(risk)} risk={risk} showMoreLabel={t("risks.showMore")} showLessLabel={t("risks.showLess")} />
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        {risks.map((risk, i) => (
+          <RiskRow
+            key={riskKey(risk)}
+            risk={risk}
+            isLast={i === risks.length - 1}
+            showMoreLabel={t("risks.showMore")}
+            showLessLabel={t("risks.showLess")}
+          />
         ))}
       </div>
     </div>
@@ -107,20 +148,22 @@ export function RiskAreas({ prId }: RiskAreasProps) {
 
 function RiskRow({
   risk,
+  isLast,
   showMoreLabel,
   showLessLabel,
 }: {
   risk: Risk;
+  isLast: boolean;
   showMoreLabel: string;
   showLessLabel: string;
 }) {
   const [open, setOpen] = useState(false);
   const severity = riskLevelToSeverity(risk.severity);
   const sev = SEV[severity];
-  const fileRefs = risk.file_refs.map(formatFileRef).join(", ");
+  const SevIcon = Icon[sev.icon];
 
   return (
-    <div style={{ border: `1px solid ${sev.c}40`, borderRadius: 6, overflow: "hidden" }}>
+    <div style={{ borderBottom: isLast ? "none" : "1px solid var(--border)" }}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -128,29 +171,41 @@ function RiskRow({
         aria-label={open ? showLessLabel : showMoreLabel}
         style={rowButtonStyle}
       >
-        <span style={{ display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
-          <SeverityBadge severity={severity} />
-          <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
-            {risk.title}
+        <span style={{ display: "flex", alignItems: "flex-start", gap: ROW_CONTENT_GAP, width: "100%" }}>
+          <span style={iconGutterStyle}>
+            <SevIcon size={14} role="img" aria-label={sev.label} style={{ color: sev.c }} />
           </span>
-          <Icon.ChevronDown
-            size={14}
-            aria-hidden="true"
-            style={{
-              color: "var(--text-muted)",
-              flexShrink: 0,
-              transform: open ? "rotate(180deg)" : undefined,
-              transition: "transform 0.15s",
-            }}
-          />
-        </span>
-        <span className="mono" style={{ fontSize: 11, color: "var(--text-muted)" }}>
-          {fileRefs}
+          <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
+                {risk.title}
+              </span>
+              <Icon.ChevronDown
+                size={14}
+                aria-hidden="true"
+                style={{
+                  color: "var(--text-muted)",
+                  flexShrink: 0,
+                  transform: open ? "rotate(180deg)" : undefined,
+                  transition: "transform 0.15s",
+                }}
+              />
+            </span>
+            {risk.file_refs.length > 0 && (
+              <span style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {risk.file_refs.map((ref, i) => (
+                  <Badge key={`${ref.path}:${ref.start_line ?? ""}:${ref.end_line ?? ""}:${i}`} mono>
+                    {formatFileRef(ref)}
+                  </Badge>
+                ))}
+              </span>
+            )}
+          </span>
         </span>
       </button>
 
       {open && (
-        <div style={{ padding: "0 10px 10px 10px" }}>
+        <div style={explanationWrapStyle}>
           <p style={{ margin: 0, fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.5 }}>
             {risk.explanation}
           </p>

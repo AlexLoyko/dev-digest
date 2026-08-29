@@ -12,8 +12,24 @@ import * as t from '../src/db/schema.js';
 import { Container } from '../src/platform/container.js';
 import { loadConfig } from '../src/platform/config.js';
 import { BriefService, isBriefGenerationFailure } from '../src/modules/brief/service.js';
-import { MockLLMProvider, MockGitHubClient } from '../src/adapters/mocks.js';
+import { MockLLMProvider, MockGitHubClient, MockSecretsProvider } from '../src/adapters/mocks.js';
 import { startPg, dockerAvailable, type PgFixture } from './helpers/pg.js';
+
+/** Collects every `.info`/`.warn`/`.error`/`.debug` call as a single string,
+ *  so a test can grep the FULL captured log output for diagnostic content or
+ *  a leaked secret — mirrors `brief-generate.it.test.ts`'s helper of the same
+ *  shape (kept local rather than shared, this module's owned paths are
+ *  self-contained). */
+function makeCapturingLogger() {
+  const lines: string[] = [];
+  const capture = (obj: unknown, msg?: string) => {
+    lines.push(JSON.stringify({ obj, msg }));
+  };
+  return {
+    logger: { info: capture, warn: capture, error: capture, debug: capture },
+    text: () => lines.join('\n'),
+  };
+}
 
 const hasDocker = await dockerAvailable();
 const d = hasDocker ? describe : describe.skip;
@@ -144,13 +160,16 @@ d('BriefService.generate — failure branch (Testcontainers, AC-16)', () => {
     const prId = await seedPull(db, workspaceId, repoId, { headSha: 'sha-a' });
 
     const provider = new RejectingLLMProvider();
+    const secretValue = 'sk-test-should-never-appear-in-logs';
+    const { logger, text } = makeCapturingLogger();
     const config = loadConfig({ NODE_ENV: 'test' } as NodeJS.ProcessEnv);
     const container = new Container(config, db, {
       llm: { openai: provider },
       github: new MockGitHubClient(),
+      secrets: new MockSecretsProvider({ GITHUB_TOKEN: secretValue }),
     });
 
-    const service = new BriefService(container);
+    const service = new BriefService(container, logger);
     const result = await service.generate(workspaceId, prId);
 
     expect(provider.calls).toHaveLength(1);
@@ -161,6 +180,18 @@ d('BriefService.generate — failure branch (Testcontainers, AC-16)', () => {
 
     // Nothing written.
     expect(await readStoredJson(db, prId)).toBeUndefined();
+
+    // The warn log can explain its own failure: the thrown error's message
+    // and the provider/model the call was attempted against (the finding
+    // this test guards against — a `model_error` with no diagnosable cause).
+    const logged = text();
+    expect(logged).toContain('network error: upstream unavailable');
+    expect(logged).toContain('"provider":"openai"');
+    expect(logged).toContain('"model":"gpt-4.1"');
+
+    // NFR-7: no secrets-provider value anywhere in the captured log output —
+    // the error detail must never carry a credential.
+    expect(logged).not.toContain(secretValue);
   });
 
   it('a provider returning an out-of-set risk_level stores nothing and reports invalid_result (EC-10)', async () => {

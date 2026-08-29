@@ -121,9 +121,9 @@ describe("RiskAreas", () => {
     renderRiskAreas();
 
     await screen.findByText("High risk row");
-    // SeverityBadge renders the uppercase SEV label for the mapped severity —
+    // The row's severity icon carries its accessible name via role="img" —
     // riskLevelToSeverity("high") -> "CRITICAL" -> SEV.CRITICAL.label.
-    expect(screen.getByText("Critical")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Critical" })).toBeInTheDocument();
   });
 
   it("is keyboard-operable: each row is a real <button>, focusable and togglable by click/Enter", async () => {

@@ -148,12 +148,22 @@ describe("BriefCard run-derived elements (AC-12)", () => {
     expect(within(trailing).getByText(briefMessages.card.score.label)).toBeInTheDocument();
   });
 
-  it("renders a muted meta row with the run's cost and token volume via the shared formatters", async () => {
+  it("renders the run's cost and token volume, split into design-specified pieces (muted $, positive amount, muted tokens), via the shared formatters", async () => {
     renderCard("pr-run-5", makeBriefResponse());
-    const { main } = await findRegions();
+    // This row lives in the bottom-right cost block of the trailing region,
+    // above the brief's own meta row (design/01-loaded-overview.png) — not
+    // under the prose in the main column. The design renders it as three
+    // distinct pieces on one line rather than one flat string, so the full
+    // text is only findable via the node's full (recursive) textContent,
+    // not `getByText`'s default direct-child-text-node matching — see
+    // `BriefCard.cost.test.tsx`'s equivalent assertion for the same reason.
+    const { trailing } = await findRegions();
+    const expectedFullText = `${formatCost(BASE_RUN.cost_usd)} · ${formatTokens(8200, 1300)}`;
 
     expect(
-      within(main).getByText(`${formatCost(BASE_RUN.cost_usd)} · ${formatTokens(8200, 1300)}`),
+      within(trailing).getByText(
+        (_, element) => element?.tagName === "P" && element.textContent === expectedFullText,
+      ),
     ).toBeInTheDocument();
     // Locks in the lowercase-`k` convention (AC-22) against the uppercase
     // form some design assets show — the product convention wins.

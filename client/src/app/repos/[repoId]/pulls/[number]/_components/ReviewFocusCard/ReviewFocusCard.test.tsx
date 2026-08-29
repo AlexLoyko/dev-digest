@@ -61,8 +61,12 @@ describe("ReviewFocusCard", () => {
 
     const links = screen.getAllByRole("link");
     expect(links).toHaveLength(2);
+    // "src/config.ts" has only two segments — nothing to abbreviate.
     expect(links[0]).toHaveTextContent("src/config.ts:12");
-    expect(links[1]).toHaveTextContent("src/api/users.ts:46-48");
+    // "src/api/users.ts" has three — displayed as an ellipsis plus its final
+    // two segments; the full path still lives in the chip's `title`.
+    expect(links[1]).toHaveTextContent("…/api/users.ts:46-48");
+    expect(links[1]?.closest("[title]")).toHaveAttribute("title", "src/api/users.ts:46-48");
     expect(screen.getByText(/Secret committed in plaintext/)).toBeInTheDocument();
     expect(screen.getByText(/N\+1 query/)).toBeInTheDocument();
     expect(screen.getByText("2")).toBeInTheDocument();
@@ -88,8 +92,33 @@ describe("ReviewFocusCard", () => {
     );
     // The reason is rendered as literal text, never markup.
     expect(screen.getByText(/Needs a careful look/)).toBeInTheDocument();
-    // The raw path is shown as plain text, not re-interpreted.
-    expect(screen.getByText(/src\/weird dir\/file#name\.ts:5-9/)).toBeInTheDocument();
+    // The chip shows the abbreviated path (raw, un-encoded) as plain text —
+    // never re-interpreted as markup or a URL.
+    expect(screen.getByText(/…\/weird dir\/file#name\.ts:5-9/)).toBeInTheDocument();
+    // The full, un-abbreviated path stays available via `title` on the chip.
+    expect(link.closest("[title]")).toHaveAttribute(
+      "title",
+      "src/weird dir/file#name.ts:5-9",
+    );
+  });
+
+  it("abbreviates a long path to a leading ellipsis and its final two segments, leaving short paths untouched", () => {
+    const entries: ReviewFocusEntry[] = [
+      {
+        file: { path: "server/src/modules/reviews/run-executor.ts", start_line: 12 },
+        reason: "Long path",
+      },
+      { file: { path: "src/config.ts", start_line: 3 }, reason: "Short path" },
+    ];
+    useBriefMock.mockReturnValue({ data: { brief: briefWith(entries) } });
+
+    renderWithIntl(
+      <ReviewFocusCard prId="pr1" repoFullName="acme/widgets" headSha="abc123" />,
+    );
+
+    expect(screen.getByText("…/reviews/run-executor.ts:12")).toBeInTheDocument();
+    // A path with two segments or fewer has nothing to abbreviate.
+    expect(screen.getByText("src/config.ts:3")).toBeInTheDocument();
   });
 
   it("opens in a new tab without leaking a referrer", () => {

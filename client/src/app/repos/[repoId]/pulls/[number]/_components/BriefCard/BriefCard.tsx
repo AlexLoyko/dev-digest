@@ -64,15 +64,52 @@ const generatingSkeletonWrap: CSSProperties = {
  *  DOM node, so it never disturbs the surrounding flex layout/gaps. */
 const dimStyle: CSSProperties = { opacity: 0.5 };
 
-/** The run-derived cost/token meta row (AC-12) — one step more muted than
- *  `s.why`, matching `verdictStyles.scoreLabel`'s treatment of secondary
- *  numbers. `styles.ts` is T16's owned file, so this stays local per the
- *  established pattern for BriefCard-only, single-consumer styles. */
+/** The brief's OWN generation cost/token meta row (AC-10) — the fully muted,
+ *  supplementary line of the bottom-right cost block: same muted treatment
+ *  as `s.why`, one step more muted than the run's own cost row below
+ *  (`runCostRow`), which is the primary, design-styled line. `styles.ts` is
+ *  this task's own owned file too, so a shared style there would work
+ *  equally well — this stays local per the established pattern for
+ *  BriefCard-only, single-consumer styles. Renders in the bottom-right cost
+ *  block of the TRAILING region (`design/01-loaded-overview.png`), beneath
+ *  the run's own line — not in the main column under the prose, which is
+ *  where an earlier instruction mistakenly placed it. */
 const runMetaRow: CSSProperties = {
   fontSize: 12,
   color: "var(--text-muted)",
-  marginTop: 6,
+  marginTop: 2,
 };
+
+/** The run's own cost/token line (AC-12) — the bottom-right cost block's
+ *  PRIMARY, design-styled line (`design/01-loaded-overview.png`): a muted
+ *  `$` glyph, the amount in the product's positive/success tone
+ *  (`var(--ok)` — confirmed the correct green token for this codebase,
+ *  never `var(--success)`/`var(--green)`, which don't exist), and the token
+ *  volume in muted grey. `formatCost` stays the single source of the cost
+ *  string (AC-22) — this only splits its already-formatted output
+ *  (`"$0.045"`) into its `$` and numeric parts for per-piece styling, never
+ *  reformats the number itself. Falls back to an all-muted `formatCost`
+ *  output (e.g. "n/a") when the provider didn't report a cost — a
+ *  positive/green tint on "n/a" would misread as a real, favourable number. */
+const runCostRow: CSSProperties = { fontSize: 12, marginTop: 0 };
+
+function splitRunCost(costUsd: number | null): { symbol: string; amount: string } {
+  const formatted = formatCost(costUsd);
+  return formatted.startsWith("$")
+    ? { symbol: "$", amount: formatted.slice(1) }
+    : { symbol: "", amount: formatted };
+}
+
+function RunCostRow({ run, dim }: { run: BriefLatestRun; dim: boolean }) {
+  const { symbol, amount } = splitRunCost(run.cost_usd);
+  return (
+    <p style={{ ...runCostRow, ...(dim ? dimStyle : {}) }}>
+      <span style={{ color: "var(--text-muted)" }}>{symbol}</span>
+      <span style={{ color: symbol ? "var(--ok)" : "var(--text-muted)" }}>{amount}</span>
+      <span style={{ color: "var(--text-muted)" }}> · {tokensLabel(run)}</span>
+    </p>
+  );
+}
 
 /** Visual footprint of `IconBtn` (`client/src/vendor/ui/primitives/IconBtn.tsx`)
  *  reproduced locally for the disabled state (AC-11) — that primitive has no
@@ -154,19 +191,23 @@ function tokensLabel(run: BriefLatestRun): string {
 
 /** The brief's OWN generation model/cost/tokens (AC-10) — `data.meta`, never
  *  `latest_run` (a separate call against the same PR; `BriefLatestRun`'s own
- *  cost/tokens keep rendering via `runMetaRow` immediately below this row,
+ *  cost/tokens render via the design-styled `RunCostRow` ABOVE this row,
  *  untouched). Model, cost and token volume are each their own element
  *  rather than one concatenated string, so each is independently findable
  *  by exact text (`BriefCard.cost.test.tsx`) without colliding with the
  *  run's row, which already owns the single-concatenated-string convention.
- *  Reuses `runMetaRow`'s styling verbatim — this is a second instance of the
- *  same muted meta treatment, not a new one. Gated on `data.meta` ALONE (not
- *  `run && data.meta`) — the brief's own generation is a metered, paid call
- *  independent of whether any agent run has ever completed, so a PR with a
- *  brief but no completed run (or even no run attempt at all) still shows
- *  what that brief cost. `BriefCard.norun.test.tsx`'s absence assertion is
- *  scoped to THE RUN'S data specifically (finding/blocker counts, score, the
- *  run's own concatenated cost/token row) and does not forbid this row. */
+ *  Gated on `data.meta` ALONE (not `run && data.meta`) — the brief's own
+ *  generation is a metered, paid call independent of whether any agent run
+ *  has ever completed, so a PR with a brief but no completed run (or even no
+ *  run attempt at all) still shows what that brief cost.
+ *  `BriefCard.norun.test.tsx`'s absence assertion is scoped to THE RUN'S
+ *  data specifically (finding/blocker counts, score, the run's own
+ *  concatenated cost/token row) and does not forbid this row. Renders in the
+ *  bottom-right cost block of the TRAILING region, beneath the run's own
+ *  `RunCostRow` — the supplementary, more-muted line carrying the model name
+ *  (`design/01-loaded-overview.png` shows a single cost line for the run
+ *  only; this second line predates that image, added for AC-10, which is
+ *  why it reads secondary rather than matching the image 1:1). */
 function BriefMetaCostRow({ meta, dim }: { meta: BriefMeta; dim: boolean }) {
   return (
     <p style={{ ...runMetaRow, ...(dim ? dimStyle : {}) }}>
@@ -316,12 +357,13 @@ export function BriefCard({ prId }: BriefCardProps) {
               <span style={verdictStyles.label("var(--text-primary)")}>{t("card.failure.headline")}</span>
             </div>
             <p style={verdictStyles.summary}>{failureCause(generate.error, t, tCommon)}</p>
-            {/* Reusing `card.noBrief.body` (not a `card.failure.*` key) is
-               deliberate, not a slip — it is the one string already in this
-               file that plainly says no brief exists for this pull request,
-               which this branch must state (AC-16's acceptance) without
-               adding a new key under `card.failure`. */}
-            <p style={verdictStyles.summary}>{t("card.noBrief.body")}</p>
+            {/* `card.failure.noPriorBrief` is purpose-written for this
+               branch — not `card.noBrief.body`, which is an invitation
+               ("what a brief reads") that belongs to the never-generated
+               state below, not to a failure. This line states the one
+               remaining fact AC-16 requires here: there is no earlier
+               brief to fall back on. */}
+            <p style={verdictStyles.summary}>{t("card.failure.noPriorBrief")}</p>
             <div style={generateCtaWrap}>
               <Button kind="secondary" icon="RefreshCw" onClick={() => generate.mutate()}>
                 {t("card.failure.retry")}
@@ -435,9 +477,8 @@ export function BriefCard({ prId }: BriefCardProps) {
               {t("card.failure.chipWithPrior")}
             </Badge>
           </div>
-          <p style={{ ...verdictStyles.summary, ...dimStyle }}>{brief.what}</p>
+          <p style={{ ...s.what, ...dimStyle }}>{brief.what}</p>
           <p style={{ ...s.why, ...dimStyle }}>{brief.why}</p>
-          {data.meta && <BriefMetaCostRow meta={data.meta} dim />}
           <div style={generateCtaWrap}>
             <Button kind="secondary" icon="RefreshCw" onClick={() => generate.mutate()}>
               {t("card.failure.retry")}
@@ -445,9 +486,13 @@ export function BriefCard({ prId }: BriefCardProps) {
           </div>
         </div>
 
+        {/* No regenerate control here (AC-16): the inline "Try again" above
+           is the only recovery affordance, so the trailing region's top slot
+           stays empty — only the score group (middle) and the brief's own
+           cost line (bottom) render. */}
         <div data-testid={BRIEF_CARD_TESTIDS.trailing} style={s.trailing}>
           {run?.score != null && (
-            <>
+            <div style={s.scoreGroup}>
               <div
                 role="img"
                 aria-label={t("card.score.accessibleLabel", { score: run.score })}
@@ -455,8 +500,13 @@ export function BriefCard({ prId }: BriefCardProps) {
               >
                 <CircularScore score={run.score} size={52} stroke={5} />
               </div>
-              <span style={{ ...verdictStyles.scoreLabel, ...dimStyle }}>{t("card.score.label")}</span>
-            </>
+              <span style={{ ...s.scoreLabel, ...dimStyle }}>{t("card.score.label")}</span>
+            </div>
+          )}
+          {data.meta && (
+            <div style={s.costGroup}>
+              <BriefMetaCostRow meta={data.meta} dim />
+            </div>
           )}
         </div>
       </div>
@@ -515,19 +565,41 @@ export function BriefCard({ prId }: BriefCardProps) {
             </span>
           )}
         </div>
-        <p style={{ ...verdictStyles.summary, ...(generating ? dimStyle : {}) }}>{brief.what}</p>
+        <p style={{ ...s.what, ...(generating ? dimStyle : {}) }}>{brief.what}</p>
         <p style={{ ...s.why, ...(generating ? dimStyle : {}) }}>{brief.why}</p>
-        {data.meta && <BriefMetaCostRow meta={data.meta} dim={generating} />}
-        {run && (
-          <p style={{ ...runMetaRow, ...(generating ? dimStyle : {}) }}>
-            {formatCost(run.cost_usd)} · {tokensLabel(run)}
-          </p>
-        )}
       </div>
 
+      {/* The trailing region distributes across the card's full height
+         (`s.trailing`'s `justifyContent: "space-between"` + `alignSelf:
+         "stretch"`) instead of crowding everything against the ring, per
+         `design/01-loaded-overview.png`: the regenerate control at the top,
+         the score ring with its label in the middle, and the cost block
+         pinned to the bottom-right at the bottom — the layout an earlier
+         instruction mistakenly collapsed into one crowded stack beneath the
+         "PR score" label. */}
       <div data-testid={BRIEF_CARD_TESTIDS.trailing} style={s.trailing}>
+        {/* AC-11 / `design/states/Stale.dc.html`: TOP of the trailing
+           column, above the score ring. While a generation is in flight,
+           the control is removed from this branch entirely — not merely
+           disabled — matching the artboard for "an earlier brief exists and
+           a regeneration is under way" exactly. Removing it must never
+           collapse the trailing region itself (AC-20): the score ring and
+           cost block below still hold this region's footprint. Outside a
+           generation, this is the pre-existing live `IconBtn`, carrying its
+           accessible name from the catalogue rather than the icon alone. */}
+        {!generating && (
+          <IconBtn
+            icon="RefreshCw"
+            label={t("card.regenerateAriaLabel")}
+            onClick={() => generate.mutate()}
+          />
+        )}
         {run?.score != null && (
-          <>
+          // MIDDLE of the trailing column: the score ring with its label
+          // beneath it, grouped so `s.trailing`'s `justifyContent:
+          // space-between` treats the pair as one item and never splits
+          // them apart.
+          <div style={s.scoreGroup}>
             {/* A visually-hidden-equivalent text alternative for the score
                ring, via `role="img"` + `aria-label` — never editing the
                shared `CircularScore` primitive, since `VerdictBanner` also
@@ -539,26 +611,30 @@ export function BriefCard({ prId }: BriefCardProps) {
             >
               <CircularScore score={run.score} size={52} stroke={5} />
             </div>
-            <span style={{ ...verdictStyles.scoreLabel, ...(generating ? dimStyle : {}) }}>
+            <span style={{ ...s.scoreLabel, ...(generating ? dimStyle : {}) }}>
               {t("card.score.label")}
             </span>
-          </>
+          </div>
         )}
-        {/* AC-11 / `design/states/Stale.dc.html`: while a generation is in
-           flight, the control is removed from this branch entirely — not
-           merely disabled — matching the artboard for "an earlier brief
-           exists and a regeneration is under way" exactly. Removing it must
-           never collapse the trailing region itself (AC-20): the score ring
-           and its label above still hold this region's footprint. Outside a
-           generation, this is the pre-existing live `IconBtn`, carrying its
-           accessible name from the catalogue rather than the icon alone. */}
-        {!generating && (
-          <IconBtn
-            icon="RefreshCw"
-            label={t("card.regenerateAriaLabel")}
-            onClick={() => generate.mutate()}
-          />
-        )}
+        {/* BOTTOM of the trailing column, pinned to the card's bottom-right
+           corner (`s.costGroup`'s `alignSelf: "flex-end"` plus being the
+           last item under `s.trailing`'s `justifyContent: space-between`).
+           Two distinct cost/token lines (AC-10 / AC-12), stacked: the run's
+           own line (`RunCostRow`, design-styled — muted `$`, positive/green
+           amount, muted token volume) reads as PRIMARY, and the brief's own
+           generation cost (`data.meta`, gated on `data.meta` alone, never
+           `run && data.meta` — AC-10, a brief is a paid call, including one
+           triggered automatically with no click, so its cost must stay
+           visible even with no completed run) reads as SUPPLEMENTARY below
+           it, more muted and carrying its model name. Neither ever stands
+           in for the other (`BriefCard.cost.test.tsx` /
+           `BriefCard.run.test.tsx`). Both dim via the same per-element
+           `dimStyle` spread as everything else here — never a wrapping
+           node, so no flex gap collapses. */}
+        <div style={s.costGroup}>
+          {run && <RunCostRow run={run} dim={generating} />}
+          {data.meta && <BriefMetaCostRow meta={data.meta} dim={generating} />}
+        </div>
       </div>
     </div>
   );

@@ -447,17 +447,49 @@ d('Brief HTTP routes (Testcontainers, AC-9 / AC-8 / AC-23)', () => {
     });
 
     const post = () => app.inject({ method: 'POST', url: `/pulls/${prId}/brief/generate` });
-    const call1 = post();
-    const call2 = post();
-    const call3 = post();
 
-    // Give the three concurrent handlers a chance to reach (and block on)
-    // completeStructured before releasing it — deterministic via polling
-    // rather than a fixed sleep.
+    // Fire request 1 ALONE first and wait until it reaches (and blocks on)
+    // `completeStructured`. Per `SingleFlight.run()`'s documented atomicity
+    // guarantee ("fn() is invoked and the key registered with no `await`
+    // between them"), the `${prId}:${headSha}` key is GUARANTEED to already
+    // be in the map by the time this call lands — not merely "probably, if
+    // the others were fast enough".
+    //
+    // The previous version of this test fired all three requests together
+    // and released the provider as soon as request 1 reached the model
+    // call. That is racy: requests 2/3 still had to complete their own
+    // (real, Postgres) `getPull`/`getRepo` reads and reach
+    // `singleFlight.run()` themselves, and nothing guaranteed that finished
+    // before request 1's key was evicted — if it lost that race, request
+    // 2/3 legitimately started a second, independent generation (a second
+    // `completeStructured` call) even though the product code was correct.
+    // See EC-9/AC-8 finding write-up for the full diagnosis.
+    //
+    // Only dispatching requests 2/3 AFTER request 1's key is confirmed
+    // registered removes that direction of the race entirely — they can no
+    // longer arrive at `run()` before the key exists.
+    const call1 = post();
     const deadline = Date.now() + 2000;
     while (provider.calls.length < 1 && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 10));
     }
+    expect(provider.calls).toHaveLength(1); // sanity: request 1 is now blocked inside the guard
+
+    const call2 = post();
+    const call3 = post();
+
+    // Settle, not a barrier: give requests 2/3's own `getPull`/`getRepo`
+    // reads (real Postgres round trips, not mocked — this module doesn't
+    // expose a seam to instrument `singleFlight.run()` entry directly from
+    // outside `BriefService`) time to complete and reach `run()` while
+    // request 1's key is still registered, before we let request 1 proceed
+    // past the gate. Request 1's key additionally stays registered for its
+    // entire post-release tail (schema re-validation, grounding, and the
+    // `repository.upsert` write) before `SingleFlight`'s `.finally()` evicts
+    // it, which is further slack beyond this explicit wait — but that slack
+    // is incidental, so it isn't relied on alone.
+    await new Promise((r) => setTimeout(r, 100));
+
     provider.releaseAll();
 
     const [res1, res2, res3] = await Promise.all([call1, call2, call3]);

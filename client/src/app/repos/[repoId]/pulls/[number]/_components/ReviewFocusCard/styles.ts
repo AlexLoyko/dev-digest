@@ -24,4 +24,15 @@ export const s = {
   entryText: {
     color: "var(--text-secondary)",
   } satisfies CSSProperties,
+  /** The abbreviated-path chip is a label for the reason, not the content —
+   *  keep it from growing wider than its text and wrapping mid-path. */
+  locationChip: {
+    whiteSpace: "nowrap",
+  } satisfies CSSProperties,
+  /** Higher-contrast than the surrounding `entryText` (which now only styles
+   *  the bullet's em dash): the reason is the row's actual content, the
+   *  file location is its label. */
+  reason: {
+    color: "var(--text-primary)",
+  } satisfies CSSProperties,
 } as const;

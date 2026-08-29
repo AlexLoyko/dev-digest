@@ -312,7 +312,7 @@ export class BriefService {
         temperature: 0.1,
       });
     } catch (err) {
-      return this.failure(prId, this.classifyThrow(err));
+      return this.failure(prId, this.classifyThrow(err), { err, provider, model });
     }
 
     // AC-16 (T9): re-validate the model's own result before trusting it — a
@@ -322,7 +322,7 @@ export class BriefService {
     // throws).
     const validatedResult = PrBrief.safeParse(result.data);
     if (!validatedResult.success) {
-      return this.failure(prId, 'invalid_result');
+      return this.failure(prId, 'invalid_result', { provider, model });
     }
 
     // ---- Ground against the PR's real changed paths (AC-5) ------------------
@@ -335,7 +335,7 @@ export class BriefService {
     // invalid path, so this is re-checked rather than assumed.
     const validatedGrounded = PrBrief.safeParse(groundedBrief);
     if (!validatedGrounded.success) {
-      return this.failure(prId, 'invalid_result');
+      return this.failure(prId, 'invalid_result', { provider, model });
     }
 
     const durationMs = Date.now() - startedAt;
@@ -391,14 +391,42 @@ export class BriefService {
    * something an earlier concurrent generation, unrelated to this one, could
    * have written moments ago) so the client's presentation branch reflects
    * what is actually in storage right now.
+   *
+   * `detail` carries the diagnostics that never cross the HTTP boundary
+   * (`BriefGenerationFailure` itself stays exactly `{reason, hasPriorBrief}`
+   * — the route/client contract, and what an out-of-scope response body
+   * could show a browser, are both unchanged). `detail.err` is only present
+   * for the thrown-error path (the `invalid_result` short-circuits below
+   * `completeStructured` reach here with no thrown error at all, so it's
+   * optional rather than a synthesized fake). Only `err.name`/`err.message`
+   * are ever read — never the whole error object, and never `err.config` /
+   * `err.request` / `err.headers` / a response body, any of which could
+   * carry a provider SDK's credential value (NFR-7). This is the same
+   * "extract the message field, don't log the object" shape as
+   * `reviews/service.ts`'s `err: (err as Error).message` and
+   * `run-executor.ts`'s background-agent-failure log.
    */
   private async failure(
     prId: string,
     reason: BriefGenerationFailure['reason'],
+    detail?: { err?: unknown; provider?: string; model?: string },
   ): Promise<BriefGenerationFailure> {
     const prior = await this.repo.getStored(prId);
+    const thrown = detail?.err;
     this.logger?.warn(
-      { prId, reason, hasPriorBrief: prior !== null },
+      {
+        prId,
+        reason,
+        hasPriorBrief: prior !== null,
+        provider: detail?.provider,
+        model: detail?.model,
+        ...(thrown !== undefined
+          ? {
+              errName: thrown instanceof Error ? thrown.name : undefined,
+              err: thrown instanceof Error ? thrown.message : String(thrown),
+            }
+          : {}),
+      },
       `brief: generation failed for pr ${prId} (${reason})`,
     );
     return { reason, hasPriorBrief: prior !== null };

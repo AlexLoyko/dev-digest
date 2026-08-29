@@ -113,17 +113,20 @@ async function findRegions() {
 describe("BriefCard brief-generation cost/tokens (AC-10)", () => {
   it("renders the brief's own model", async () => {
     renderCard("pr-cost-1", makeBriefResponse());
-    const { main } = await findRegions();
+    // Both meta rows live in the trailing region, beneath the score ring
+    // (design/01-loaded-overview.png) — not under the prose in the main
+    // column.
+    const { trailing } = await findRegions();
 
-    expect(within(main).getByText(BASE_META.model)).toBeInTheDocument();
+    expect(within(trailing).getByText(BASE_META.model)).toBeInTheDocument();
   });
 
   it("renders the brief's own cost, distinguishable from the run's cost", async () => {
     renderCard("pr-cost-2", makeBriefResponse());
-    const { main } = await findRegions();
+    const { trailing } = await findRegions();
 
     // The brief's own cost string must appear...
-    expect(within(main).getByText(formatCost(BASE_META.cost_usd))).toBeInTheDocument();
+    expect(within(trailing).getByText(formatCost(BASE_META.cost_usd))).toBeInTheDocument();
     // ...and the run's cost — a different value by construction — must not
     // be presented as if it were the brief's own cost.
     expect(formatCost(BASE_META.cost_usd)).not.toBe(formatCost(BASE_RUN.cost_usd));
@@ -131,11 +134,11 @@ describe("BriefCard brief-generation cost/tokens (AC-10)", () => {
 
   it("renders the brief's own token volume using the product's lowercase-k convention", async () => {
     renderCard("pr-cost-3", makeBriefResponse());
-    const { main } = await findRegions();
+    const { trailing } = await findRegions();
 
     const expected = formatTokens(BASE_META.tokens_in, BASE_META.tokens_out);
     expect(expected).toBe("8k→1.3k");
-    expect(within(main).getByText(expected)).toBeInTheDocument();
+    expect(within(trailing).getByText(expected)).toBeInTheDocument();
 
     // The run's token volume — a different value by construction — must be
     // present somewhere (BriefCard.run.test.tsx's own concern) but never
@@ -146,23 +149,27 @@ describe("BriefCard brief-generation cost/tokens (AC-10)", () => {
 
   it("keeps meta's cost/tokens and the run's cost/tokens each in their own place, not swapped", async () => {
     renderCard("pr-cost-4", makeBriefResponse());
-    const { main } = await findRegions();
+    const { trailing } = await findRegions();
 
     // The brief's own cost renders in its own isolated `<span>` (this row's
     // convention — see `BriefMetaCostRow`), so it is directly findable on
     // its own.
-    expect(within(main).getByText(formatCost(BASE_META.cost_usd))).toBeInTheDocument();
-    // The run's cost/tokens render via the PRE-EXISTING run row
-    // (`BriefCard.run.test.tsx`'s own convention, not this file's to
-    // restructure): unwrapped sibling text inside one `<p>`, findable only
-    // as its one full concatenated string — an isolation requirement on
-    // that row can't coexist with `run.test.tsx`'s own single-string
-    // assertion (they'd need contradictory DOM shapes). Asserting the whole
-    // row still proves the run's cost/tokens are both present and are the
-    // run's OWN numbers, not the brief's.
+    expect(within(trailing).getByText(formatCost(BASE_META.cost_usd))).toBeInTheDocument();
+    // The run's cost/tokens render via the design-styled `RunCostRow` (a
+    // muted `$` glyph, the amount in the positive/success tone, and the
+    // token volume in muted grey — each its own `<span>`), so the full
+    // string is only findable via the node's full (recursive) textContent,
+    // not `getByText`'s default direct-child-text-node matching (see
+    // `BriefCard.run.test.tsx`'s equivalent assertion for the same reason).
+    // Asserting the whole row still proves the run's cost/tokens are both
+    // present and are the run's OWN numbers, not the brief's. Both rows now
+    // live in the same trailing region (stacked in the bottom-right cost
+    // block, alongside the score ring), so this is exactly what proves they
+    // still don't collide there.
+    const expectedRunText = `${formatCost(BASE_RUN.cost_usd)} · ${formatTokens(BASE_RUN.tokens_in as number, BASE_RUN.tokens_out as number)}`;
     expect(
-      within(main).getByText(
-        `${formatCost(BASE_RUN.cost_usd)} · ${formatTokens(BASE_RUN.tokens_in as number, BASE_RUN.tokens_out as number)}`,
+      within(trailing).getByText(
+        (_, element) => element?.tagName === "P" && element.textContent === expectedRunText,
       ),
     ).toBeInTheDocument();
 

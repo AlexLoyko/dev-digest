@@ -7,7 +7,17 @@
    by an attacker-controlled PR description. It is rendered as plain text
    only — never markdown, never dangerouslySetInnerHTML. The link target is
    built with `githubBlobUrl`, which percent-encodes each path segment, so a
-   path containing a space or `#` cannot break out of the URL. */
+   path containing a space or `#` cannot break out of the URL — the RAW,
+   un-abbreviated path is what's passed to it, never the display string.
+
+   The location renders as a `Badge mono` chip (spec design
+   01-loaded-overview.png / same "mono text on a tinted background"
+   treatment as `RiskAreas.tsx`'s file-ref chips) showing an abbreviated
+   path — a leading ellipsis plus the final two segments — rather than the
+   full path, which would otherwise dominate the line. The full path is
+   never lost: it's wrapped in a `title` (Badge has no such prop — same
+   "wrap it instead of forking the primitive" pattern `BriefCard.tsx` uses
+   for `Badge`), so hovering the chip reveals it. */
 "use client";
 
 import { useTranslations } from "next-intl";
@@ -30,13 +40,35 @@ function entryKey(entry: ReviewFocusEntry): string {
 }
 
 /** "path:line" or "path:start-end"; just the path when the entry applies to
- *  the whole file (no line range grounded to it). */
+ *  the whole file (no line range grounded to it). The FULL, un-abbreviated
+ *  path — used for the chip's `title` and never for display. */
 function fileLocation(file: ReviewFocusEntry["file"]): string {
   if (file.start_line == null) return file.path;
   if (file.end_line == null || file.end_line === file.start_line) {
     return `${file.path}:${file.start_line}`;
   }
   return `${file.path}:${file.start_line}-${file.end_line}`;
+}
+
+/** Leading ellipsis + the final two path segments — e.g.
+ *  `server/src/modules/reviews/run-executor.ts` -> `…/reviews/run-executor.ts`.
+ *  Paths already two segments or shorter are returned unabbreviated: there's
+ *  nothing to hide. Display only — never fed to `githubBlobUrl`. */
+function abbreviatePath(path: string): string {
+  const segments = path.split("/");
+  if (segments.length <= 2) return path;
+  return `…/${segments.slice(-2).join("/")}`;
+}
+
+/** The abbreviated display form of `fileLocation` — same "path[:line]" shape,
+ *  with the path shortened via `abbreviatePath`. */
+function fileLocationDisplay(file: ReviewFocusEntry["file"]): string {
+  const shortPath = abbreviatePath(file.path);
+  if (file.start_line == null) return shortPath;
+  if (file.end_line == null || file.end_line === file.start_line) {
+    return `${shortPath}:${file.start_line}`;
+  }
+  return `${shortPath}:${file.start_line}-${file.end_line}`;
 }
 
 function ReviewFocusItem({
@@ -65,9 +97,13 @@ function ReviewFocusItem({
         •
       </span>
       <span style={s.entryText}>
-        <MonoLink href={href}>{fileLocation(entry.file)}</MonoLink>
+        <span title={fileLocation(entry.file)}>
+          <Badge mono style={s.locationChip}>
+            <MonoLink href={href}>{fileLocationDisplay(entry.file)}</MonoLink>
+          </Badge>
+        </span>
         {" — "}
-        {entry.reason}
+        <span style={s.reason}>{entry.reason}</span>
       </span>
     </li>
   );

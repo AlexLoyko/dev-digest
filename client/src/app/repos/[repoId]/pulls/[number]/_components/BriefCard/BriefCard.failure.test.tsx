@@ -164,9 +164,12 @@ describe("BriefCard failure — no earlier brief (AC-16, design/states/Failed.dc
     expect(within(main).getByText(briefMessages.card.failure.cause.model_error)).toBeInTheDocument();
 
     // States plainly that no earlier brief exists for this pull request —
-    // reusing the existing `card.noBrief.body` string rather than adding a
-    // new `card.failure.*` key.
-    expect(within(main).getByText(briefMessages.card.noBrief.body)).toBeInTheDocument();
+    // its own purpose-written `card.failure.noPriorBrief` string, not the
+    // never-generated state's invitational `card.noBrief.body` (that would
+    // both repeat the cause sentence above and pitch what a brief reads,
+    // which doesn't belong after a failure).
+    expect(within(main).getByText(briefMessages.card.failure.noPriorBrief)).toBeInTheDocument();
+    expect(within(main).queryByText(briefMessages.card.noBrief.body)).not.toBeInTheDocument();
 
     // Exactly one recovery affordance: the inline "Try again" button. The
     // never-generated CTA is gone, and there is no second control anywhere

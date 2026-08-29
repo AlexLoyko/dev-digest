@@ -259,7 +259,7 @@ describe("NFR-4 accessibility — BriefCard, RiskAreas, ReviewFocusCard (automat
     }
   });
 
-  it("5. conveys each risk row's severity by icon and label together, never by colour alone", () => {
+  it("5. conveys each risk row's severity by icon and its accessible name, never by colour alone", () => {
     renderRiskAreas(
       briefData({
         brief: {
@@ -272,15 +272,16 @@ describe("NFR-4 accessibility — BriefCard, RiskAreas, ReviewFocusCard (automat
       }),
     );
 
-    const highLabel = screen.getByText("Critical");
-    const highBadge = highLabel.closest("span");
-    expect(highBadge?.querySelector("svg")).toBeTruthy();
-    expect(highBadge).toHaveTextContent("Critical");
+    // The visible text label is gone (spec design 01-loaded-overview.png:
+    // a small severity-coloured icon, no text beside it), but the icon's
+    // SHAPE still differs per severity (AlertOctagon vs AlertTriangle) and
+    // carries an accessible name via role="img" + aria-label — never colour
+    // alone (NFR-4).
+    const highIcon = screen.getByRole("img", { name: "Critical" });
+    expect(highIcon.tagName.toLowerCase()).toBe("svg");
 
-    const mediumLabel = screen.getByText("Warning");
-    const mediumBadge = mediumLabel.closest("span");
-    expect(mediumBadge?.querySelector("svg")).toBeTruthy();
-    expect(mediumBadge).toHaveTextContent("Warning");
+    const mediumIcon = screen.getByRole("img", { name: "Warning" });
+    expect(mediumIcon.tagName.toLowerCase()).toBe("svg");
   });
 
   it("6. gives the score ring a text equivalent via role=\"img\" and an aria-label carrying the numeric score", () => {
