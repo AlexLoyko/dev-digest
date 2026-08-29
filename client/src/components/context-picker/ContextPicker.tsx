@@ -26,7 +26,7 @@ import {
   type DisplayRow,
   type MoveDirection,
 } from "./helpers";
-import { s, reorderBtnStyle, reorderGroupRevealStyle } from "./styles";
+import { s, reorderBtnStyle, reorderGroupRevealStyle, sourceRootColor } from "./styles";
 
 export interface ContextPickerProps {
   documents: SpecFile[];
@@ -254,7 +254,10 @@ function DocumentRow({
             variable-width badges are rendered after Preview (not between
             it and the token count) so their presence/absence never shifts
             Preview's horizontal position. */}
-        <span style={s.sourceRootLabel} aria-hidden={doc ? undefined : true}>
+        <span
+          style={{ ...s.sourceRootLabel, color: doc ? sourceRootColor[doc.root] : undefined }}
+          aria-hidden={doc ? undefined : true}
+        >
           {doc ? tContext(`sourceRoot.${doc.root}`) : ""}
         </span>
         <span
@@ -278,12 +281,20 @@ function DocumentRow({
         {excluded && <Badge color="var(--crit)">{tContext("excluded")}</Badge>}
         {isMissing && <Badge color="var(--crit)">{t("missingInRepo")}</Badge>}
 
-        {isAttached && (
-          <span style={{ ...s.reorderGroup, ...reorderGroupRevealStyle(revealed) }}>
-            <ReorderButton icon="ArrowUp" label={t("moveUp")} disabled={busy || !canMoveUp} onClick={() => onMove("up")} />
-            <ReorderButton icon="ArrowDown" label={t("moveDown")} disabled={busy || !canMoveDown} onClick={() => onMove("down")} />
-          </span>
-        )}
+        {/* Reserved on every row (see s.reorderGroup) — attached rows get
+            the real up/down buttons; unattached rows get an empty,
+            aria-hidden slot of the same width so Preview never shifts. */}
+        <span
+          style={{ ...s.reorderGroup, ...reorderGroupRevealStyle(revealed) }}
+          aria-hidden={isAttached ? undefined : true}
+        >
+          {isAttached && (
+            <>
+              <ReorderButton icon="ArrowUp" label={t("moveUp")} disabled={busy || !canMoveUp} onClick={() => onMove("up")} />
+              <ReorderButton icon="ArrowDown" label={t("moveDown")} disabled={busy || !canMoveDown} onClick={() => onMove("down")} />
+            </>
+          )}
+        </span>
       </div>
     </li>
   );

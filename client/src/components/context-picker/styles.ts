@@ -1,4 +1,24 @@
 import type { CSSProperties } from "react";
+import type { SpecFile } from "@devdigest/shared";
+
+/** Category colour lookup, keyed by `SpecFile["root"]` — a new root value
+ *  later is a one-line addition here, not a new conditional in the
+ *  component. Picks the closest existing design tokens rather than a new
+ *  one: `docs`→`--ok` (green — NOT `--success`, that token doesn't exist,
+ *  see insights/gotchas.md), `insights`→`--warn` (amber/orange),
+ *  `specs`→`--sugg` (named for "suggestion" severity but its hex value is
+ *  the palette's blue), `readme`/`other`→`--text-secondary` (the row's
+ *  previous single colour; kept for the two neutral categories because at
+ *  this row's 12px/500-weight it reads noticeably clearer against
+ *  `--bg-elevated` in dark theme than `--text-muted`, which dips under
+ *  WCAG AA (~3.15:1) at that size — `--text-secondary` is ~5.99:1). */
+export const sourceRootColor: Record<SpecFile["root"], string> = {
+  docs: "var(--ok)",
+  insights: "var(--warn)",
+  specs: "var(--sugg)",
+  readme: "var(--text-secondary)",
+  other: "var(--text-secondary)",
+};
 
 /** Co-located styles for ContextPicker. */
 export const s = {
@@ -72,7 +92,6 @@ export const s = {
   sourceRootLabel: {
     fontSize: 12,
     fontWeight: 500,
-    color: "var(--text-secondary)",
     flexShrink: 0,
     whiteSpace: "nowrap",
     minWidth: "8ch",
@@ -104,7 +123,18 @@ export const s = {
   } satisfies CSSProperties,
   rowGroup: { display: "flex", flexDirection: "column", flex: 1, minWidth: 0 } satisfies CSSProperties,
   chipRow: { display: "flex", alignItems: "center", gap: 6, flexShrink: 0 } satisfies CSSProperties,
-  reorderGroup: { display: "flex", alignItems: "center", gap: 2, flexShrink: 0 } satisfies CSSProperties,
+  // Fixed-width slot for the up/down reorder buttons (two 22px buttons +
+  // 2px gap = 46px), rendered on every row regardless of attachment. Only
+  // `chipRow`'s trailing content used to differ between attached and
+  // unattached rows — attached rows had this group, unattached rows had
+  // nothing — and because `chipRow` is a natural-width flex item next to
+  // `rowGroup` (flex: 1), that extra trailing width pulled `chipRow`'s
+  // whole box (and therefore its leading sourceRootLabel/tokenCount/Preview
+  // column) further left on attached rows as `rowGroup` shrank to
+  // compensate. Reserving the width unconditionally — empty and
+  // aria-hidden when reordering doesn't apply — keeps every row's `chipRow`
+  // (and Preview's x position within it) identical either way.
+  reorderGroup: { display: "flex", alignItems: "center", gap: 2, flexShrink: 0, minWidth: 46 } satisfies CSSProperties,
   footer: {
     display: "flex",
     alignItems: "center",
