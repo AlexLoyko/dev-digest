@@ -31,9 +31,12 @@ jobs:
         working-directory: evals
     env:
       # Content tier only — direct OpenAI-compatible call, no LiteLLM proxy needed.
+      # v3.2, not the older bare "deepseek-chat" (DeepSeek V3): V3 is served by only 2 OpenRouter
+      # providers, and DeepInfra caps it at 32,768 tokens, which a large injected SKILL.md can
+      # exceed. V3.2 has a 163,840-token window across 15 providers and is cheaper besides.
       EVAL_BACKEND: openrouter
-      EVAL_MODEL: deepseek/deepseek-chat
-      EVAL_JUDGE_MODEL: deepseek/deepseek-chat
+      EVAL_MODEL: deepseek/deepseek-v3.2
+      EVAL_JUDGE_MODEL: deepseek/deepseek-v3.2
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
     steps:
       - uses: actions/checkout@v4

@@ -37,8 +37,12 @@ jobs:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       # Tool-use only (Read/Glob/Grep/Bash) — no subagent dispatch is exercised at this tier,
       # so the cheap model is fine here (dispatch is covered by eval-workflow, on Gemini).
-      EVAL_MODEL: deepseek/deepseek-chat
-      EVAL_JUDGE_MODEL: deepseek/deepseek-chat
+      # v3.2, not the older bare "deepseek-chat" (DeepSeek V3): V3 is served by only 2 OpenRouter
+      # providers, and DeepInfra caps it at 32,768 tokens — our injected system prompt (full agent
+      # .md) plus tool output routinely runs 57K-120K tokens, so a request landing on DeepInfra
+      # 502s mid-run. V3.2 has a 163,840-token window across 15 providers and is cheaper besides.
+      EVAL_MODEL: deepseek/deepseek-v3.2
+      EVAL_JUDGE_MODEL: deepseek/deepseek-v3.2
     steps:
       - uses: actions/checkout@v4
         with:

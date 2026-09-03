@@ -98,8 +98,8 @@ pnpm eval:skills
 
 # 2. OpenRouter + DeepSeek (native, no proxy)
 EVAL_BACKEND=openrouter \
-EVAL_MODEL=deepseek/deepseek-chat \
-EVAL_JUDGE_MODEL=deepseek/deepseek-chat \
+EVAL_MODEL=deepseek/deepseek-v3.2 \
+EVAL_JUDGE_MODEL=deepseek/deepseek-v3.2 \
 OPENROUTER_API_KEY=sk-or-... \
 pnpm eval:skills
 
