@@ -61,8 +61,17 @@ First, capture the mechanical baseline:
 ./scripts/arch-check.sh
 ```
 
-Quote its verdict in your report. If it fails, say so and stop pursuing those rules — they are
-already reported, precisely, for free.
+Quote its verdict in your report, but **scope its findings to the file set you are auditing**
+before letting them affect your Gate verdict — `arch-check.sh` scans the whole repo, not just your
+diff, so a FAIL there does not by itself mean *this diff* is the problem:
+- **In scope.** Any location it reports that falls inside your audited file set counts toward this
+  diff's Gate, exactly like a finding you derived yourself.
+- **Pre-existing, out of scope.** A location outside your audited file set is repo-wide debt this
+  diff didn't create. List it under "Pre-existing repo issues (not gating)" in your output, but do
+  not let it fail this diff's Gate.
+
+Either way, do not re-derive the three delegated rules by hand for files in scope — the script
+already found (or didn't find) them there, precisely and for free.
 
 Then read the authoritative docs, **scoped to the modules in the file set**. Reading all of them on
 a single-module diff is the same waste this agent was just trimmed to avoid.
@@ -167,6 +176,13 @@ Collect all findings, assign severity (see scale below), and emit the output in 
 
 _If no violations are found, write: "No violations found against the checked rules."_
 
+### Pre-existing repo issues (not gating)
+
+- `arch-check.sh` finding outside the audited file set, quoted verbatim — for visibility only, does
+  not affect this diff's Gate.
+
+_Omit this section entirely if `arch-check.sh` reported nothing outside your audited file set._
+
 ### Verdict
 
 | severity | count |
@@ -188,7 +204,10 @@ _If no violations are found, write: "No violations found against the checked rul
 - `evidence` — verbatim offending import, statement, or declaration copied from the source file
 - `recommendation` — one sentence describing the correct approach; no code blocks
 
-**Gate logic:** PASS requires zero `critical` and zero `high` findings. Any `critical` or `high` finding is a FAIL. `medium` and below do not block merge but should be addressed.
+**Gate logic:** PASS requires zero `critical` and zero `high` findings **within the audited file
+set**. Any `critical` or `high` finding there is a FAIL; `medium` and below do not block merge but
+should be addressed. A pre-existing `arch-check.sh` violation outside the audited file set is
+listed separately (see above) and never fails this Gate on its own.
 
 ---
 
