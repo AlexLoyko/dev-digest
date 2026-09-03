@@ -1,6 +1,10 @@
 # Workflow-tier evals (evals/workflow/**) — the systemic check: does CLAUDE.md change what gets
-# read, does a skill actually activate, does a subagent actually get dispatched. Fires whenever
-# any CLAUDE.md changes, since that's exactly the file this tier exists to guard.
+# read, does a skill actually activate, does a subagent actually get dispatched. Fires on
+# anything that can change that systemic behavior: any CLAUDE.md, any agent definition (an
+# agent isn't just its own content — it's also what dispatches to it), the workflow cases
+# themselves, or the engine (evals/src/**). Mirrors ci-detect.mjs's runWorkflow condition,
+# just expressed as this job's own path filter instead of parsed output — no per-PR diffing
+# needed since the trigger IS the condition here.
 #
 # Runs on OpenRouter through the bundled LiteLLM proxy, pinned to Gemini 2.5 Flash — per
 # evals/README.md's measured comparison, it's the only cheap model that reliably drives the
@@ -12,7 +16,9 @@ on:
   pull_request:
     paths:
       - '**/CLAUDE.md'
+      - '.claude/agents/**'
       - 'evals/workflow/**'
+      - 'evals/src/**'
       - '.github/workflows/eval-workflow.yml'
 
 permissions:

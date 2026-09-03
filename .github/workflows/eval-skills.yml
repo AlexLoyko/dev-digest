@@ -3,6 +3,7 @@
 #
 # Only evaluates skills that actually changed in the PR, and only those that have evals written
 # (evals/skills/<name>/) — most skills don't yet, and that's a skip (::notice::), not a failure.
+# Change detection is evals/scripts/ci-detect.mjs, shared with eval-agents.yml.
 
 name: eval-skills
 
@@ -11,6 +12,7 @@ on:
     paths:
       - '.claude/skills/**'
       - 'evals/skills/**'
+      - 'evals/scripts/ci-detect.mjs'
       - '.github/workflows/eval-skills.yml'
 
 permissions:
@@ -36,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # need base/head history to diff changed skills
+          fetch-depth: 0 # need base/head history for ci-detect.mjs's diff
 
       - uses: pnpm/action-setup@v4
         with:
@@ -52,31 +54,24 @@ jobs:
 
       - run: pnpm typecheck
 
+      - name: Detect changed skills
+        id: detect
+        run: |
+          CHANGED_FILES="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")"
+          export CHANGED_FILES
+          node scripts/ci-detect.mjs
+
       - name: Run evals for changed skills (skip skills with no evals)
         run: |
-          BASE="${{ github.event.pull_request.base.sha }}"
-          HEAD="${{ github.event.pull_request.head.sha }}"
-
-          CHANGED=$( {
-            git diff --name-only "$BASE" "$HEAD" -- .claude/skills/ \
-              | sed -n 's#^\.claude/skills/\([^/]*\)/.*#\1#p'
-            git diff --name-only "$BASE" "$HEAD" -- evals/skills/ \
-              | sed -n 's#^evals/skills/\([^/]*\)/.*#\1#p'
-          } | sort -u )
-
-          if [ -z "$CHANGED" ]; then
-            echo "::notice::no changed skills detected"
-            exit 0
-          fi
+          SKIPPED='${{ steps.detect.outputs.skipped_skills }}'
+          for name in $SKIPPED; do
+            echo "::notice::no evals for skill '$name' — skipping"
+          done
 
           FAIL=0
-          for name in $CHANGED; do
-            if [ -d "skills/$name" ]; then
-              echo "::group::eval skill: $name"
-              pnpm exec vitest run "skills/$name" || FAIL=1
-              echo "::endgroup::"
-            else
-              echo "::notice::no evals for skill '$name' — skipping"
-            fi
+          for name in $(echo '${{ steps.detect.outputs.skills }}' | jq -r '.[]'); do
+            echo "::group::eval skill: $name"
+            pnpm exec vitest run "skills/$name" || FAIL=1
+            echo "::endgroup::"
           done
           exit $FAIL

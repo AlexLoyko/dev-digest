@@ -3,6 +3,9 @@
 #
 # Only evaluates agents that actually changed in the PR, and only those that have evals written
 # (evals/agents/<name>/) — most agents don't yet, and that's a skip (::notice::), not a failure.
+# Change detection is evals/scripts/ci-detect.mjs, shared with eval-skills.yml. Any agent change
+# also re-triggers eval-workflow.yml (it's in that workflow's own path filter) — an agent isn't
+# just its own isolated behavior, it's also whatever gets dispatched to it from the live harness.
 
 name: eval-agents
 
@@ -11,6 +14,7 @@ on:
     paths:
       - '.claude/agents/**'
       - 'evals/agents/**'
+      - 'evals/scripts/ci-detect.mjs'
       - '.github/workflows/eval-agents.yml'
 
 permissions:
@@ -38,7 +42,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # need base/head history to diff changed agents
+          fetch-depth: 0 # need base/head history for ci-detect.mjs's diff
 
       - uses: pnpm/action-setup@v4
         with:
@@ -58,32 +62,25 @@ jobs:
 
       - run: pnpm proxy:wait
 
+      - name: Detect changed agents
+        id: detect
+        run: |
+          CHANGED_FILES="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")"
+          export CHANGED_FILES
+          node scripts/ci-detect.mjs
+
       - name: Run evals for changed agents (skip agents with no evals)
         run: |
-          BASE="${{ github.event.pull_request.base.sha }}"
-          HEAD="${{ github.event.pull_request.head.sha }}"
-
-          CHANGED=$( {
-            git diff --name-only "$BASE" "$HEAD" -- .claude/agents/ \
-              | sed -n 's#^\.claude/agents/\([^/]*\)\.md$#\1#p'
-            git diff --name-only "$BASE" "$HEAD" -- evals/agents/ \
-              | sed -n 's#^evals/agents/\([^/]*\)/.*#\1#p'
-          } | grep -v '^README$' | sort -u )
-
-          if [ -z "$CHANGED" ]; then
-            echo "::notice::no changed agents detected"
-            exit 0
-          fi
+          SKIPPED='${{ steps.detect.outputs.skipped_agents }}'
+          for name in $SKIPPED; do
+            echo "::notice::no evals for agent '$name' — skipping"
+          done
 
           FAIL=0
-          for name in $CHANGED; do
-            if [ -d "agents/$name" ]; then
-              echo "::group::eval agent: $name"
-              pnpm exec vitest run "agents/$name" || FAIL=1
-              echo "::endgroup::"
-            else
-              echo "::notice::no evals for agent '$name' — skipping"
-            fi
+          for name in $(echo '${{ steps.detect.outputs.agents }}' | jq -r '.[]'); do
+            echo "::group::eval agent: $name"
+            pnpm exec vitest run "agents/$name" || FAIL=1
+            echo "::endgroup::"
           done
           exit $FAIL
 
