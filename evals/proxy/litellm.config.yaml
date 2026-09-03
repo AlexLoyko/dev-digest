@@ -1,0 +1,52 @@
+# LiteLLM translating proxy for the eval tool tiers (agentTask / workflowTask).
+#
+# WHY THIS EXISTS
+# The Claude Agent SDK only speaks the Anthropic Messages wire protocol (POST /v1/messages).
+# OpenRouter's native "Anthropic Skin" serves that shape ONLY for anthropic/* slugs, so cheap
+# non-Anthropic models (DeepSeek, Gemini Flash, Llama, …) can't back the tool tiers directly.
+#
+# LiteLLM's proxy accepts BOTH shapes on one port:
+#   - POST /v1/messages          (Anthropic format)  ← the Agent SDK, via ANTHROPIC_BASE_URL
+#   - POST /chat/completions      (OpenAI format)     ← the content tier's direct OpenAI client
+# and translates each to the target model on OpenRouter. Point OPENROUTER_BASE_URL at this proxy
+# (http://localhost:4000) and every eval tier can run on any OpenRouter model, cheaply, on CI.
+#
+# The wildcard route forwards whatever EVAL_MODEL / EVAL_JUDGE_MODEL you pass straight through to
+# OpenRouter, so you never edit this file to try a new model — e.g. EVAL_MODEL=deepseek/deepseek-chat
+# arrives here as "deepseek/deepseek-chat" and is dispatched as "openrouter/deepseek/deepseek-chat".
+#
+# SUBAGENT MODEL OVERRIDES (why the two explicit routes below exist)
+# workflowTask loads the real .claude/agents/*.md files, and several declare their own
+# `model: sonnet` / `model: opus`. When the SDK dispatches that subagent it resolves the alias to
+# a canonical Claude Agent SDK model ID itself (`claude-sonnet-5`, `claude-opus-5`) and sends THAT
+# over the wire — bypassing EVAL_MODEL entirely, since this is the subagent's own declared model,
+# not the harness's. The wildcard then forwards it verbatim as "openrouter/claude-sonnet-5", which
+# OpenRouter rejects: unlike the generic slugs above, Anthropic models need the "anthropic/"
+# provider prefix (verified: openrouter.ai/anthropic/claude-sonnet-5,
+# openrouter.ai/anthropic/claude-opus-5). Route those two IDs explicitly, ahead of the wildcard, so
+# a full subagent dispatch (not just the tool-call issuance a `dispatch`-kind case stops at) can
+# actually complete instead of erroring out mid-run.
+
+model_list:
+  - model_name: "claude-sonnet-5"
+    litellm_params:
+      model: "openrouter/anthropic/claude-sonnet-5"
+      api_key: os.environ/OPENROUTER_API_KEY
+  - model_name: "claude-opus-5"
+    litellm_params:
+      model: "openrouter/anthropic/claude-opus-5"
+      api_key: os.environ/OPENROUTER_API_KEY
+  - model_name: "*"
+    litellm_params:
+      model: "openrouter/*"
+      api_key: os.environ/OPENROUTER_API_KEY
+
+litellm_settings:
+  # Deterministic evals: never retry-with-jitter behind our back; the runners own retries.
+  drop_params: true
+
+general_settings:
+  # No master_key on purpose: this is an ephemeral local/CI gateway. It runs in "no-auth" mode,
+  # so the bearer token the SDK forwards (ANTHROPIC_AUTH_TOKEN=OPENROUTER_API_KEY) is ignored and
+  # the proxy authenticates to OpenRouter with OPENROUTER_API_KEY from its own environment.
+  # Do NOT expose this port publicly.

@@ -1,0 +1,72 @@
+# Workflow-tier evals (evals/workflow/**) — the systemic check: does CLAUDE.md change what gets
+# read, does a skill actually activate, does a subagent actually get dispatched. Fires on
+# anything that can change that systemic behavior: any CLAUDE.md, any agent definition (an
+# agent isn't just its own content — it's also what dispatches to it), the workflow cases
+# themselves, or the engine (evals/src/**). Mirrors ci-detect.mjs's runWorkflow condition,
+# just expressed as this job's own path filter instead of parsed output — no per-PR diffing
+# needed since the trigger IS the condition here.
+#
+# Runs on OpenRouter through the bundled LiteLLM proxy, pinned to Gemini 3.8 Flash — the current
+# best/latest Flash release (superseding the 2.5 Flash originally measured in evals/README.md's
+# "which cheap model" comparison; DeepSeek/GPT-4.1-mini were the ones that failed to dispatch,
+# not 2.5 Flash itself, so the newer Flash generation is the safe direction to move the pin).
+
+name: eval-workflow
+
+on:
+  pull_request:
+    paths:
+      - '**/CLAUDE.md'
+      - '.claude/agents/**'
+      - 'evals/workflow/**'
+      - 'evals/src/**'
+      - '.github/workflows/eval-workflow.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-workflow-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: evals
+    env:
+      EVAL_BACKEND: openrouter
+      OPENROUTER_BASE_URL: http://localhost:4000
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      EVAL_MODEL: google/gemini-3.8-flash
+      EVAL_JUDGE_MODEL: google/gemini-3.8-flash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: evals/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+
+      - run: docker compose -f proxy/docker-compose.yml up -d
+
+      - run: pnpm proxy:wait
+
+      - run: pnpm eval:workflow
+
+      - if: failure()
+        run: docker compose -f proxy/docker-compose.yml logs --tail 100
+
+      - if: always()
+        run: docker compose -f proxy/docker-compose.yml down

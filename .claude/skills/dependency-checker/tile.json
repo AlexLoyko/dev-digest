@@ -1,0 +1,11 @@
+{
+  "name": "local/dependency-checker",
+  "version": "0.1.0",
+  "private": true,
+  "summary": "Repository-wide dependency audit — external and internal inventory, installed and browser-bundle weight, package and component graphs, prioritised recommendations",
+  "skills": {
+    "dependency-checker": {
+      "path": "SKILL.md"
+    }
+  }
+}

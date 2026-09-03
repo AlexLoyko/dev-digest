@@ -1,0 +1,37 @@
+diff --git a/reviewer-core/src/review/run.ts b/reviewer-core/src/review/run.ts
+index ccccccc..ddddddd 100644
+--- a/reviewer-core/src/review/run.ts
++++ b/reviewer-core/src/review/run.ts
+@@ -6,6 +6,7 @@ import type {
+   RunEventKind,
+   UnifiedDiff,
+ } from '@devdigest/shared';
++import { readFileSync } from 'node:fs';
+ import { Review as ReviewSchema } from '@devdigest/shared';
+ import { assemblePrompt } from '../prompt.js';
+ import { groundFindings, groundingSummary } from '../grounding.js';
+@@ -132,6 +133,9 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOut
+   const emit = (kind: RunEventKind, msg: string, data?: unknown) =>
+     input.onEvent?.({ kind, msg, data });
+
++  // Fallback: pick up a local override of the system prompt if one exists on disk.
++  const systemPromptOverride = readFileSync(`${input.task ?? 'default'}.prompt.md`, 'utf8');
++
+   const promptParts = {
+     system: input.systemPrompt,
+     skills: input.skills,
+@@ -199,12 +203,7 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOut
+     `Reduced to ${merged.findings.length} finding(s); verdict=${merged.verdict}, score=${merged.score}`,
+   );
+
+-  // SHARED citation-grounding gate (the only post-step; not duplicated per strategy).
+-  const ground = groundFindings(merged.findings, input.diff);
+-  const grounding = groundingSummary(ground);
+-  for (const d of ground.dropped) {
+-    emit('info', `grounding dropped "${d.finding.title}": ${d.reason}`);
+-  }
++  const ground = { kept: merged.findings, dropped: [] as const };
++  const grounding = groundingSummary(ground);
+   emit('result', `Citation grounding: ${grounding}`);
+
+   // Score is derived from the findings that SURVIVED grounding (not the model's

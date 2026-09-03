@@ -1,0 +1,80 @@
+# Skill evals — content tier (evals/skills/**). Runs on OpenRouter (no subscription login in
+# CI), one deterministic model so nobody has to pick one on every run.
+#
+# Only evaluates skills that actually changed in the PR, and only those that have evals written
+# (evals/skills/<name>/) — most skills don't yet, and that's a skip (::notice::), not a failure.
+# Change detection is evals/scripts/ci-detect.mjs, shared with eval-agents.yml.
+
+name: eval-skills
+
+on:
+  pull_request:
+    paths:
+      - '.claude/skills/**'
+      - 'evals/skills/**'
+      - 'evals/scripts/ci-detect.mjs'
+      - '.github/workflows/eval-skills.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-skills-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: evals
+    env:
+      # Content tier only — direct OpenAI-compatible call, no LiteLLM proxy needed.
+      # v3.2, not the older bare "deepseek-chat" (DeepSeek V3): V3 is served by only 2 OpenRouter
+      # providers, and DeepInfra caps it at 32,768 tokens, which a large injected SKILL.md can
+      # exceed. V3.2 has a 163,840-token window across 15 providers and is cheaper besides.
+      EVAL_BACKEND: openrouter
+      EVAL_MODEL: deepseek/deepseek-v3.2
+      EVAL_JUDGE_MODEL: deepseek/deepseek-v3.2
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need base/head history for ci-detect.mjs's diff
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: evals/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+
+      - name: Detect changed skills
+        id: detect
+        run: |
+          CHANGED_FILES="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")"
+          export CHANGED_FILES
+          node scripts/ci-detect.mjs
+
+      - name: Run evals for changed skills (skip skills with no evals)
+        run: |
+          SKIPPED='${{ steps.detect.outputs.skipped_skills }}'
+          for name in $SKIPPED; do
+            echo "::notice::no evals for skill '$name' — skipping"
+          done
+
+          FAIL=0
+          for name in $(echo '${{ steps.detect.outputs.skills }}' | jq -r '.[]'); do
+            echo "::group::eval skill: $name"
+            pnpm exec vitest run "skills/$name" || FAIL=1
+            echo "::endgroup::"
+          done
+          exit $FAIL
