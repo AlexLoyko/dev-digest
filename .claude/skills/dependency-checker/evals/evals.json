@@ -1,0 +1,57 @@
+{
+  "skill_name": "dependency-checker",
+  "baseline": "without_skill",
+  "notes": "These cases run against the real repository rather than a fixture, because the thing under test is whether measured data beats guessing — and a hand-built fixture would let a run reach the right answer by reading four package.json files. Ground truth was verified by hand and is recorded in answer-key.md. The discriminating cases are 1 and 2: both have obvious wrong answers that a static grep reaches confidently.",
+  "evals": [
+    {
+      "id": 0,
+      "name": "full-audit",
+      "fixture": null,
+      "prompt": "I want a proper picture of what this repo depends on - we have several packages and nobody has looked at the whole thing in a while. Analyse all the dependencies, external and between our own packages, show me how they connect, how much each one weighs, and finish with what you would actually do about it in priority order. Write it to OUTDIR/report.md.",
+      "expected_output": "A structured report with a summary, a scale table, a Mermaid package graph, per-package weight tables, a browser-cost section that states no production build exists, ranked findings with evidence, and a prioritised action table.",
+      "assertions": [
+        "Runs the bundled collector scripts (collect.mjs and/or bundle.mjs) rather than deriving all numbers by reading package.json files or running du by hand",
+        "Reports all six packages (client, server, reviewer-core, e2e, mcp-server, evals) rather than only the two or three obvious ones",
+        "Contains at least one Mermaid diagram of how the packages depend on each other",
+        "Identifies that server and reviewer-core depend on each other (server imports @devdigest/reviewer-core while reviewer-core imports @devdigest/shared from server/src/vendor/shared), and calls it out as a cycle or mutual dependency",
+        "Names @fastify/autoload as a declared production dependency that nothing imports",
+        "Does NOT claim pino-pretty or @vscode/ripgrep are unused (both are referenced - pino-pretty as a string in server/src/app.ts, @vscode/ripgrep via dynamic import in server/src/adapters/codeindex/ripgrep.ts)",
+        "Keeps installed size and browser bundle size as separate concerns rather than merging them into one ranking",
+        "States that browser bundle sizes are unavailable because only a development build exists, instead of silently omitting the section or quoting dev-build numbers as if they were real",
+        "Ends with prioritised recommendations where each item names a concrete action (a file, a command, or an edit), not a general suggestion to review something",
+        "Reports version drift across packages for shared tooling (typescript, @types/node, tsx, vitest, zod all carry different ranges in different packages)"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "browser-cost",
+      "fixture": null,
+      "prompt": "The dashboard feels heavy on first load. Which of the libraries we pull into client/ actually end up in the user's browser, and which ones are we paying for on every page even though we probably don't need them up front? Write your answer to OUTDIR/answer.md with the specific files I should open.",
+      "expected_output": "An answer distinguishing dependencies that reach the client graph from ones that do not, noting that mermaid is already lazy-loaded while recharts, react-markdown, lucide-react and d3 are eager, and pointing at the specific import sites.",
+      "assertions": [
+        "Determines what reaches the browser by following the import graph from the route entry points, not by checking whether each individual file starts with 'use client'",
+        "Distinguishes 'reachable in the import graph' from 'present in the bundle' — does not treat a static import chain as proof that a library ships",
+        "Identifies that the chart components (client/src/vendor/ui/charts/LineChart.tsx, Donut.tsx) are only consumed by components/showcase/Showcase.tsx, which no route renders, so recharts is not a first-load cost",
+        "Recognises that mermaid is dynamically imported and its component is unrouted, and does not recommend lazy-loading it again",
+        "Recommends deferring at least one dependency that genuinely does load eagerly on a real route (d3 on the PR detail route, or react-markdown), rather than one that is already dropped",
+        "Names specific files as the place to make the change",
+        "Does not quote chunk or bundle byte sizes taken from the existing development build as if they were production numbers; if it quotes production numbers, it ran a build to get them"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "cleanup-candidates",
+      "fixture": null,
+      "prompt": "I want to trim our package.json files. Go through the packages and tell me which dependencies we can safely delete - I'd rather not break anything, so be specific about how you know each one is really unused. Write it to OUTDIR/cleanup.md.",
+      "expected_output": "A short, evidence-backed list: @fastify/autoload as the safe removal, with pino-pretty, @vscode/ripgrep and the @types/* packages explicitly cleared, and anything ambiguous raised as a question rather than a deletion.",
+      "assertions": [
+        "Proposes removing @fastify/autoload from server and cites that nothing imports it",
+        "Explicitly clears pino-pretty rather than proposing its removal, identifying that it is referenced as a string value in server/src/app.ts rather than imported",
+        "Explicitly clears @vscode/ripgrep rather than proposing its removal, identifying the dynamic import in server/src/adapters/codeindex/ripgrep.ts",
+        "Does not propose deleting @types/* packages, typescript, tsx, or vitest on the grounds that no source file imports them",
+        "For any dependency it is unsure about (for example testcontainers in server, which the bare package name is never imported under), raises it as something to verify rather than listing it as safe to delete",
+        "Shows evidence per dependency (a file, a line, a command run) rather than asserting a conclusion"
+      ]
+    }
+  ]
+}
