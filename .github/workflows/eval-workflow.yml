@@ -31,13 +31,6 @@ concurrency:
 jobs:
   eval:
     runs-on: ubuntu-latest
-    # Non-blocking: the `engineering-insights activation` case has failed 3/3 real runs on
-    # Gemini 2.5 Flash, each time differently (asked a clarifying question; dispatched a
-    # different agent instead of the expected Skill) — the exact "activation is indicative, not
-    # blocking, on non-Anthropic models" caveat evals/README.md already documents. Keep the job
-    # running and reporting so a real regression elsewhere in the suite is still visible, but
-    # don't let this one case block merges until it's revisited.
-    continue-on-error: true
     timeout-minutes: 25
     defaults:
       run:
