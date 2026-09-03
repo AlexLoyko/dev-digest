@@ -65,14 +65,20 @@ export type WorkflowCase =
       expectSubagents?: string[];
       expectSkills?: string[];
       expectFilesRead?: string[];
+      /** Files that must NOT appear in the trace (catches false/over-eager routing). */
+      expectFilesNotRead?: string[];
       maxTurns?: number;
     };
 
 /** Did a skill engage? Either an explicit Skill tool-call, or reading its SKILL.md. */
-export function activated(result: Result, skill: string): boolean {
-  const bySkill = result.skillsInvoked.some((s) => s === skill || s.endsWith(`:${skill}`));
-  const byRead = result.filesRead.some((f) => f.includes(`skills/${skill}/SKILL.md`));
+function skillEngaged(skillsInvoked: string[], filesRead: string[], skill: string): boolean {
+  const bySkill = skillsInvoked.some((s) => s === skill || s.endsWith(`:${skill}`));
+  const byRead = filesRead.some((f) => f.includes(`skills/${skill}/SKILL.md`));
   return bySkill || byRead;
+}
+
+export function activated(result: Result, skill: string): boolean {
+  return skillEngaged(result.skillsInvoked, result.filesRead, skill);
 }
 
 // --- Runners ----------------------------------------------------------------
@@ -132,7 +138,18 @@ export function runWorkflowCases(cases: WorkflowCase[]): void {
           record(c.name, { result });
         }
       } else if (c.kind === "activation") {
-        const result = await workflowTask(c.prompt, { maxTurns: c.maxTurns });
+        // Stop the moment the Skill tool-call is SEEN — mirrors `dispatch`'s early-stop on the
+        // subagent launch. Without this, a genuinely-triggered skill (e.g. engineering-insights,
+        // whose whole job is to write insights/INSIGHTS.md) runs its nested body to completion
+        // under workflowTask's bypassPermissions session, actually writing real files in the repo.
+        // Measured: a positive engineering-insights case wrote two fabricated insight entries into
+        // server/insights/INSIGHTS.md before this fix (reverted by hand — see git history if this
+        // comment predates a cleanup commit). shouldActivate:false cases are unaffected — stopWhen
+        // only fires once the skill is actually seen, which a correct negative never does.
+        const result = await workflowTask(c.prompt, {
+          maxTurns: c.maxTurns,
+          stopWhen: (p) => skillEngaged(p.skillsInvoked, p.filesRead, c.skill),
+        });
         logTrace(c.name, result);
         try {
           expect(
@@ -149,14 +166,11 @@ export function runWorkflowCases(cases: WorkflowCase[]): void {
         const subs = c.expectSubagents ?? [];
         const skls = c.expectSkills ?? [];
         const files = c.expectFilesRead ?? [];
-        const skillEngaged = (p: { skillsInvoked: string[]; filesRead: string[] }, skill: string) =>
-          p.skillsInvoked.some((s) => s === skill || s.endsWith(`:${skill}`)) ||
-          p.filesRead.some((f) => f.includes(`skills/${skill}/SKILL.md`));
         const result = await workflowTask(c.prompt, {
           maxTurns: c.maxTurns,
           stopWhen: (p) =>
             subs.every((s) => p.subagents.includes(s)) &&
-            skls.every((s) => skillEngaged(p, s)) &&
+            skls.every((s) => skillEngaged(p.skillsInvoked, p.filesRead, s)) &&
             files.every((f) => p.filesRead.some((r) => r.includes(f))),
         });
         logTrace(c.name, result);
@@ -175,6 +189,12 @@ export function runWorkflowCases(cases: WorkflowCase[]): void {
               result.filesRead.some((f) => f.includes(file)),
               `${file} not read | reads: ${result.filesRead.join(", ")}`,
             ).toBe(true);
+          }
+          for (const file of c.expectFilesNotRead ?? []) {
+            expect(
+              result.filesRead.some((f) => f.includes(file)),
+              `${file} unexpectedly read | reads: ${result.filesRead.join(", ")}`,
+            ).toBe(false);
           }
           expect(result.isError).toBe(false);
         } finally {
