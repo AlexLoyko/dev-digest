@@ -145,8 +145,8 @@ pnpm proxy:up                                  # → http://localhost:4000
 EVAL_BACKEND=openrouter \
 OPENROUTER_BASE_URL=http://localhost:4000 \
 OPENROUTER_API_KEY=sk-or-... \
-EVAL_MODEL=google/gemini-2.5-flash \
-EVAL_JUDGE_MODEL=google/gemini-2.5-flash \
+EVAL_MODEL=google/gemini-3.8-flash \
+EVAL_JUDGE_MODEL=google/gemini-3.8-flash \
 pnpm eval:workflow
 
 # 3. Stop it when done
@@ -165,9 +165,14 @@ workflow cases:
 
 | Model | Content + routing/read traces | Subagent **dispatch** (`Agent`→ `architecture-reviewer`) |
 |-------|------------------------------|-----------------------------------------------------------|
-| `google/gemini-2.5-flash` | ✅ | ✅ **recommended** |
+| `google/gemini-2.5-flash` | ✅ | ✅ **recommended** (measured) |
 | `deepseek/deepseek-chat` | ✅ | ❌ does the work inline instead of dispatching |
 | `openai/gpt-4.1-mini` | ✅ | ❌ |
+
+> Default pin has since moved to `google/gemini-3.8-flash` — the current best/latest Flash release
+> at the time of writing, on the same Google Flash line that measured well above. This has **not**
+> been re-run through the same measurement pass as the table above; re-verify before trusting it as
+> blindly as the 2.5 row.
 
 **Two caveats for the tool tiers on cheap models:**
 
@@ -211,8 +216,8 @@ jobs:
       EVAL_BACKEND: openrouter
       OPENROUTER_BASE_URL: http://localhost:4000
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}   # repo Actions secret
-      EVAL_MODEL: google/gemini-2.5-flash
-      EVAL_JUDGE_MODEL: google/gemini-2.5-flash
+      EVAL_MODEL: google/gemini-3.8-flash
+      EVAL_JUDGE_MODEL: google/gemini-3.8-flash
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
