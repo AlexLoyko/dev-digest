@@ -1,0 +1,65 @@
+# Workflow-tier evals (evals/workflow/**) — the systemic check: does CLAUDE.md change what gets
+# read, does a skill actually activate, does a subagent actually get dispatched. Fires whenever
+# any CLAUDE.md changes, since that's exactly the file this tier exists to guard.
+#
+# Runs on OpenRouter through the bundled LiteLLM proxy, pinned to Gemini 2.5 Flash — per
+# evals/README.md's measured comparison, it's the only cheap model that reliably drives the
+# Agent tool (subagent dispatch); DeepSeek/GPT-4.1-mini do the work inline instead.
+
+name: eval-workflow
+
+on:
+  pull_request:
+    paths:
+      - '**/CLAUDE.md'
+      - 'evals/workflow/**'
+      - '.github/workflows/eval-workflow.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-workflow-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: evals
+    env:
+      EVAL_BACKEND: openrouter
+      OPENROUTER_BASE_URL: http://localhost:4000
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      EVAL_MODEL: google/gemini-2.5-flash
+      EVAL_JUDGE_MODEL: google/gemini-2.5-flash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: evals/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+
+      - run: docker compose -f proxy/docker-compose.yml up -d
+
+      - run: pnpm proxy:wait
+
+      - run: pnpm eval:workflow
+
+      - if: failure()
+        run: docker compose -f proxy/docker-compose.yml logs --tail 100
+
+      - if: always()
+        run: docker compose -f proxy/docker-compose.yml down

@@ -1,0 +1,94 @@
+# Agent evals — tool tier (evals/agents/**). Runs on OpenRouter through the bundled LiteLLM
+# proxy (agentTask drives the Claude Agent SDK, which needs the Anthropic wire shape).
+#
+# Only evaluates agents that actually changed in the PR, and only those that have evals written
+# (evals/agents/<name>/) — most agents don't yet, and that's a skip (::notice::), not a failure.
+
+name: eval-agents
+
+on:
+  pull_request:
+    paths:
+      - '.claude/agents/**'
+      - 'evals/agents/**'
+      - '.github/workflows/eval-agents.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-agents-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: evals
+    env:
+      EVAL_BACKEND: openrouter
+      OPENROUTER_BASE_URL: http://localhost:4000
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      # Tool-use only (Read/Glob/Grep/Bash) — no subagent dispatch is exercised at this tier,
+      # so the cheap model is fine here (dispatch is covered by eval-workflow, on Gemini).
+      EVAL_MODEL: deepseek/deepseek-chat
+      EVAL_JUDGE_MODEL: deepseek/deepseek-chat
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need base/head history to diff changed agents
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: evals/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+
+      - run: docker compose -f proxy/docker-compose.yml up -d
+
+      - run: pnpm proxy:wait
+
+      - name: Run evals for changed agents (skip agents with no evals)
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+
+          CHANGED=$( {
+            git diff --name-only "$BASE" "$HEAD" -- .claude/agents/ \
+              | sed -n 's#^\.claude/agents/\([^/]*\)\.md$#\1#p'
+            git diff --name-only "$BASE" "$HEAD" -- evals/agents/ \
+              | sed -n 's#^evals/agents/\([^/]*\)/.*#\1#p'
+          } | grep -v '^README$' | sort -u )
+
+          if [ -z "$CHANGED" ]; then
+            echo "::notice::no changed agents detected"
+            exit 0
+          fi
+
+          FAIL=0
+          for name in $CHANGED; do
+            if [ -d "agents/$name" ]; then
+              echo "::group::eval agent: $name"
+              pnpm exec vitest run "agents/$name" || FAIL=1
+              echo "::endgroup::"
+            else
+              echo "::notice::no evals for agent '$name' — skipping"
+            fi
+          done
+          exit $FAIL
+
+      - if: failure()
+        run: docker compose -f proxy/docker-compose.yml logs --tail 100
+
+      - if: always()
+        run: docker compose -f proxy/docker-compose.yml down
