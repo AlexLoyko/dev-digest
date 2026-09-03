@@ -75,6 +75,11 @@ export const cases: WorkflowCase[] = [
     prompt: "Explain how column dimensions work in pgvector and why a mismatch returns zero rows.",
     skill: "engineering-insights",
     shouldActivate: false,
-    maxTurns: 4,
+    // The docs don't cover pgvector internals, so the model has to reason/research (WebSearch +
+    // Read observed) rather than answer from one lookup — 4 was enough on gemini-2.5-flash (ran
+    // 3-4 turns with room to spare) but gemini-3.8-flash hit the SDK's hard "Reached maximum
+    // number of turns (4)" error on this same case. Give it real headroom instead of re-tuning
+    // to the exact edge every time the pinned model changes.
+    maxTurns: 8,
   },
 ];
